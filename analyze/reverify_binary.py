@@ -307,6 +307,7 @@ def _push_to_misp(binary_path, display_name, findings, depth, case, db_session, 
     event.distribution = 0   # org only
     event.threat_level_id = 2  # medium
     event.analysis     = 1   # ongoing
+    event.published    = False  # draft — published by assess_case when decision=confirmed
 
     file_type = findings.get("file_type", "").upper()
     arch      = findings.get("architecture", "")
