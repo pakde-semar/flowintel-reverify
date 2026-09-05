@@ -83,6 +83,55 @@ Incoming binary
 
 ---
 
+## Mattermost integration
+
+Two-way integration with [Mattermost](https://mattermost.com/):
+
+### Flowintel → Mattermost (notify_user)
+
+When a case event occurs, notify a user via Mattermost incoming webhook.
+Notification is posted to a dedicated channel (e.g. `#flowintel-alerts`).
+
+Configure in `conf/config_module.py`:
+
+```python
+MATTERMOST_WEBHOOK_URL = "https://<mattermost>/hooks/<token>"
+MATTERMOST_CHANNEL    = "flowintel-alerts"
+MATTERMOST_ENABLED    = True
+FLOWINTEL_URL         = "https://<flowintel>"  # used for case links in notifications
+```
+
+### Mattermost → Flowintel (slash command)
+
+Open a new case directly from any Mattermost channel:
+
+```
+/flowintel Suspicious dropper dari email HR
+/flowintel Ransomware on workstation PC-042 | Found at 09:00, still running
+```
+
+On submit:
+- A new Flowintel case is created immediately
+- A notification with the case number and link appears in `#flowintel-alerts`
+- The user who typed the command gets a private ephemeral confirmation
+
+**Setup** — register the slash command in Mattermost:
+
+| Field | Value |
+|-------|-------|
+| Command | `/flowintel` |
+| Request URL | `https://<flowintel>/mattermost/create_case` |
+| Method | POST |
+
+Then set in `conf/config_module.py`:
+
+```python
+FLOWINTEL_API_KEY     = "<flowintel-admin-api-key>"
+MATTERMOST_SLASH_TOKEN = "<token-from-mattermost-slash-command-config>"  # optional
+```
+
+---
+
 ## MISP integration
 
 When **Push to MISP** is enabled, the module:
