@@ -7,6 +7,7 @@ Flowintel module that brings [Reverify](https://github.com/2akouwu/reverify) bin
 ## Documentation
 
 - **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage guide: upload, push to MISP, API automation, MISP object mapping
+- **[COMPARISON.md](docs/COMPARISON.md)** — Ghidra vs Reverify: feature comparison, when to use each, how they complement each other
 
 ## What it does
 
