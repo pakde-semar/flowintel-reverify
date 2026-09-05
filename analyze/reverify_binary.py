@@ -206,12 +206,59 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
     if depth == "full":
         summary_lines.append(f"Suspicious : {findings.get('suspicious_count', 0)} strings flagged")
 
+    summary = "\n".join(summary_lines)
+
+    # 4. Write results as case note (visible in Flowintel web UI)
+    _write_note_to_case(case, summary, findings, depth, case_model, db_session)
+
     return {
-        "summary": "\n".join(summary_lines),
+        "summary": summary,
         "depth": depth,
         "binary": os.path.basename(binary_path),
         "findings": findings,
     }
+
+
+def _write_note_to_case(case, summary, findings, depth, case_model, db_session):
+    """Append analysis results as a Markdown note to the case (direct DB write)."""
+    if not db_session:
+        return
+    try:
+        note_lines = [
+            f"## Reverify Binary Analysis — `{findings.get('file_type', '?')}` {findings.get('architecture', '')} {findings.get('bits', '')}bit",
+            "",
+            f"```\n{summary}\n```",
+            "",
+        ]
+        if findings.get("imports"):
+            note_lines += ["**Imports (top 15):** " + ", ".join(f"`{i}`" for i in findings["imports"][:15]), ""]
+        if depth == "full" and findings.get("disasm_entry"):
+            note_lines.append("**Entry point disasm:**")
+            note_lines.append("```asm")
+            for instr in findings["disasm_entry"][:10]:
+                if "error" not in instr:
+                    note_lines.append(f"{instr['address']}  {instr['mnemonic']:<10} {instr['op_str']}")
+            note_lines.append("```")
+            note_lines.append("")
+        if depth == "full" and findings.get("suspicious_strings"):
+            note_lines.append("**Suspicious strings:**")
+            for s in findings["suspicious_strings"][:10]:
+                note_lines.append(f"- `{s['value']}` (offset {s['offset']})")
+            note_lines.append("")
+
+        note_text = "\n".join(note_lines)
+        case_id = case.get("id") if isinstance(case, dict) else case.id
+
+        # Direct DB write — bypasses save_history which needs an ORM User object
+        from app.case import common_core as _CommonModel
+        case_orm = _CommonModel.get_case(case_id)
+        if case_orm:
+            case_orm.notes = (case_orm.notes or "") + "\n\n" + note_text
+            import datetime as _dt
+            case_orm.last_modif = _dt.datetime.now()
+            db_session.session.commit()
+    except Exception as exc:
+        logger.warning("Could not write reverify note to case: %s", exc)
 
 
 def introspection():
