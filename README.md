@@ -52,13 +52,15 @@ Five modules share the same Flowintel case as their container:
 │  vuln keywords, ...)  │                            │  audit note          │
 │                      │                            │                      │
 │  Output: scored      │                            │  confirmed →         │
-│  suggestion + table  │                            │    Approved + MISP   │
-│  of triggered rules  │                            │  needs-ghidra →      │
+│  suggestion + table  │                            │    Approved; MISP    │
+│  of triggered rules  │                            │    draft published   │
+│                      │                            │  needs-ghidra →      │
 │                      │                            │    Request Review    │
 │                      │                            │  needs-angr →        │
 │                      │                            │    Request Review    │
 │                      │                            │  false-positive →    │
 │                      │                            │    Rejected          │
+│                      │                            │                      │
 └──────────────────────┘                            └──────────────────────┘
 ```
 
@@ -250,7 +252,7 @@ Two-way integration with [Mattermost](https://mattermost.com/):
 When a task notification is sent, the assigned user receives a message in `#flowintel-alerts`:
 
 ```
-**Wahyu**, your attention is required on a case.
+**Analyst**, your attention is required on a case.
 
 | Field        | Value                              |
 |--------------|------------------------------------|
@@ -496,7 +498,7 @@ No payload required. Reads the current case Notes and scores against 16 built-in
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `decision` | `"confirmed"` \| `"needs-ghidra"` \| `"needs-angr"` \| `"false-positive"` | — | Analyst decision |
+| `decision` | `"confirmed"` \| `"needs-ghidra"` \| `"needs-angr"` \| `"false-positive"` | — | Analyst decision; `confirmed` also publishes the MISP draft event |
 | `rationale` | string | — | Optional explanation written to the audit note |
 
 ### Depth options (reverify_binary)

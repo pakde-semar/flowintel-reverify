@@ -136,14 +136,12 @@ no PDNS, long redirect chain, fuzzy-only match, etc.).
 - `assess_case`: records analyst decision (confirmed / needs-ghidra / needs-angr / false-positive),
   applies custom tag (colour-coded), updates case status, writes timestamped audit note
 - Custom tags auto-created on first use; previous assessment tag replaced on decision change
+- `confirmed` decision publishes the MISP draft event automatically (via `PyMISP.publish`);
+  event ID resolved from `Case_Connector_Instance` or extracted from case Notes
 
 ---
 
 ## In progress / next
-
-### MISP push from assessment gate
-
-Automated MISP push when `assess_case` decision is `confirmed` — currently requires manual push via `reverify_binary`.
 
 ### MISP correlation → mitigation
 

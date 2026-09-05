@@ -370,7 +370,7 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
   "correlations": [
     {
       "case_id": 8,
-      "title": "Uji coba kirim 1",
+      "title": "Suspicious dropper campaign",
       "matches": [
         {"value": "f15a57d9...", "type": "hash"},
         {"value": "1ada846a...", "type": "hash"}
@@ -388,7 +388,7 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 Searched 5 observable(s) across all cases.
 Found overlap in 2 case(s):
 
-### Case #8 — Uji coba kirim 1 (2 shared observables)
+### Case #8 — Suspicious dropper campaign (2 shared observables)
 _Last modified: 2026-09-05_
 - `f15a57d9...` (hash)
 - `1ada846a...` (hash)
@@ -488,7 +488,7 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 
 | `decision` | Custom tag | Case status | Next step |
 |------------|-----------|-------------|-----------|
-| `confirmed` | confirmed (green) | Approved | Push IOCs to MISP |
+| `confirmed` | confirmed (green) | Approved | Publishes MISP draft event → distribute IOCs |
 | `needs-ghidra` | needs-ghidra (orange) | Request Review | Open binary in Ghidra |
 | `needs-angr` | needs-angr (red) | Request Review | Run angr symbolic execution |
 | `false-positive` | false-positive (grey) | Rejected | No further action |
@@ -508,23 +508,63 @@ Running `assess_case` again replaces the previous tag — only one assessment ta
 }
 ```
 
+When `decision` is `confirmed`, the response includes a `misp` field:
+
+```json
+{
+  "case_id": 17,
+  "decision": "confirmed",
+  "label": "Confirmed",
+  "tag": "confirmed",
+  "status_id": 8,
+  "rationale": "All IOCs verified; no evasion signals detected.",
+  "misp": {
+    "published": true,
+    "event_url": "https://<misp>/events/view/2125"
+  }
+}
+```
+
 ### Note written to case
+
+For `needs-ghidra`:
 
 ```
 ## Assessment: Case #17
 
 **ESCALATED → Ghidra — insufficient evidence from automated triage.**
 
-| Field    | Value                     |
-|----------|---------------------------|
-| Decision | Needs Ghidra              |
-| Analyst  | wahyu@combine.id          |
-| Time     | 2026-09-06 00:15          |
+| Field    | Value                       |
+|----------|-----------------------------|
+| Decision | Needs Ghidra                |
+| Analyst  | analyst@example.com         |
+| Time     | 2026-09-06 00:15            |
 
 **Rationale:**
 > Process injection APIs and high entropy — IOCs not recoverable from static analysis.
 
 _Next step: open binary in Ghidra for deep decompilation and flow analysis._
+```
+
+For `confirmed`:
+
+```
+## Assessment: Case #17
+
+**CONFIRMED ✓ — IOCs verified. MISP event will be published.**
+
+| Field    | Value                       |
+|----------|-----------------------------|
+| Decision | Confirmed                   |
+| Analyst  | analyst@example.com         |
+| Time     | 2026-09-06 00:15            |
+
+**Rationale:**
+> All IOCs verified; no evasion signals detected.
+
+**MISP event published ✓** — [https://<misp>/events/view/2125](https://<misp>/events/view/2125)
+
+_Next step: review IOCs in MISP and distribute as needed._
 ```
 
 ---
@@ -559,7 +599,7 @@ In any Mattermost channel:
 ✅ Case #16 created
 Title: Suspicious dropper from HR email
 Link: https://<flowintel>/case/16
-Opened via Mattermost by @iwewe
+Opened via Mattermost by @analyst
 ```
 
 4. The user who sent the command receives a private ephemeral confirmation
