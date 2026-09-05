@@ -74,8 +74,8 @@ cp analyze/reverify_binary.py "$MODULE_DIR/"
 [ -f "$MODULE_DIR/__init__.py" ] || touch "$MODULE_DIR/__init__.py"
 ok "Module installed: $MODULE_DIR/reverify_binary.py"
 
-# ── Step 3: Install web UI blueprint ─────────────────────────────────────────
-echo "[3/5] Installing reverify_tool blueprint..."
+# ── Step 3: Install web UI + Mattermost hook blueprints ───────────────────────
+echo "[3/6] Installing reverify_tool and mattermost_hook blueprints..."
 mkdir -p "$PLUGIN_DST"
 mkdir -p "$TEMPLATE_DST"
 cp flowintel_plugin/reverify_tool/__init__.py "$PLUGIN_DST/"
@@ -84,13 +84,35 @@ cp flowintel_plugin/templates/reverify_tool/index.html    "$TEMPLATE_DST/"
 cp flowintel_plugin/templates/reverify_tool/push_misp.html "$TEMPLATE_DST/"
 ok "Blueprint installed: $PLUGIN_DST"
 
-# Register blueprint in __init__.py (idempotent)
+MATTERMOST_HOOK_DST="$APP_DIR/mattermost_hook"
+mkdir -p "$MATTERMOST_HOOK_DST"
+cp flowintel_plugin/mattermost_hook/__init__.py "$MATTERMOST_HOOK_DST/"
+cp flowintel_plugin/mattermost_hook/views.py    "$MATTERMOST_HOOK_DST/"
+ok "Blueprint installed: $MATTERMOST_HOOK_DST"
+
+# Register blueprints in __init__.py (idempotent)
 if grep -q "reverify_tool_blueprint" "$INIT_PY"; then
-    warn "Blueprint already registered in $INIT_PY — skipping"
+    warn "reverify_tool blueprint already registered — skipping"
 else
-    # Insert before the final 'return app'
     sed -i "s/    return app/    from .reverify_tool import reverify_tool_blueprint\n    app.register_blueprint(reverify_tool_blueprint, url_prefix=\"\/reverify\")\n\n    return app/" "$INIT_PY"
-    ok "Blueprint registered in $INIT_PY"
+    ok "reverify_tool blueprint registered in $INIT_PY"
+fi
+
+if grep -q "mattermost_hook_blueprint" "$INIT_PY"; then
+    warn "mattermost_hook blueprint already registered — skipping"
+else
+    python3 - "$INIT_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+content = open(path).read()
+old = '    from .reverify_tool import reverify_tool_blueprint'
+new = ('    from .mattermost_hook import mattermost_hook_blueprint\n'
+       '    csrf.exempt(mattermost_hook_blueprint)\n'
+       '    app.register_blueprint(mattermost_hook_blueprint, url_prefix="/mattermost")\n\n'
+       '    from .reverify_tool import reverify_tool_blueprint')
+open(path, 'w').write(content.replace(old, new))
+PYEOF
+    ok "mattermost_hook blueprint registered in $INIT_PY"
 fi
 
 # ── Step 4: Patch sidebar ─────────────────────────────────────────────────────
