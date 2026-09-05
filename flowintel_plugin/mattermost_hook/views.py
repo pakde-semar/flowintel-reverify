@@ -62,12 +62,21 @@ def create_case():
     if resp.status_code == 201:
         case_id = resp.json().get("case_id", "?")
         case_url = f"{flowintel_url}/case/{case_id}"
-        return _in_channel(
+        msg = (
             f":white_check_mark: **Case #{case_id} dibuat**\n"
             f"**Judul:** {title}\n"
             f"**Link:** {case_url}\n"
             f"_Dibuka via Mattermost oleh @{user_name}_"
         )
+        # Post to #flowintel-alerts via incoming webhook (more reliable than slash command response)
+        webhook_url = getattr(Config, "MATTERMOST_WEBHOOK_URL", "")
+        if webhook_url:
+            try:
+                requests.post(webhook_url, json={"text": msg}, timeout=5)
+            except Exception:
+                pass
+        # Also return ephemeral ack so the user knows the command was received
+        return _ephemeral(f":white_check_mark: Case #{case_id} dibuat — lihat #flowintel-alerts")
     else:
         msg = resp.json().get("message", resp.text)
         return _ephemeral(f"Gagal membuat case: {msg}")
