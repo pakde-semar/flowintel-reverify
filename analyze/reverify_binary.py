@@ -194,8 +194,9 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
         return {"message": f"Analysis error: {exc}"}
 
     # 3. Build summary for Flowintel display
+    display_name = payload.get("display_name") or os.path.basename(binary_path)
     summary_lines = [
-        f"File       : {os.path.basename(binary_path)}  ({findings['file_size']:,} bytes)",
+        f"File       : {display_name}  ({findings['file_size']:,} bytes)",
         f"Type       : {findings['file_type']}",
         f"Arch       : {findings['architecture']} {findings['bits']}-bit",
         f"EntryPoint : {findings['entry_point']}",
@@ -209,12 +210,13 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
     summary = "\n".join(summary_lines)
 
     # 4. Write results as case note (visible in Flowintel web UI)
+    findings["_display_name"] = display_name
     _write_note_to_case(case, summary, findings, depth, case_model, db_session)
 
     return {
         "summary": summary,
         "depth": depth,
-        "binary": os.path.basename(binary_path),
+        "binary": display_name,
         "findings": findings,
     }
 
@@ -224,8 +226,9 @@ def _write_note_to_case(case, summary, findings, depth, case_model, db_session):
     if not db_session:
         return
     try:
+        fname = findings.pop("_display_name", findings.get("file_type", "binary"))
         note_lines = [
-            f"## Reverify Binary Analysis — `{findings.get('file_type', '?')}` {findings.get('architecture', '')} {findings.get('bits', '')}bit",
+            f"## Reverify: `{fname}` — {findings.get('file_type', '?')} {findings.get('architecture', '')} {findings.get('bits', '')}bit",
             "",
             f"```\n{summary}\n```",
             "",

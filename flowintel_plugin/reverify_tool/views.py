@@ -114,7 +114,7 @@ def analyze():
                 user={"id": current_user.id, "email": current_user.email},
                 case_model=CaseModel,
                 db_session=db,
-                payload={"file_path": file_path, "depth": depth},
+                payload={"file_path": file_path, "depth": depth, "display_name": filename},
             )
             if result and "message" in result and "findings" not in result:
                 flash(f"Reverify error: {result['message']}", "warning")
