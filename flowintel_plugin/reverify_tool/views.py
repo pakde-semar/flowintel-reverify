@@ -13,18 +13,8 @@ from app.db_class.db import db, Case, File
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")
 FILE_FOLDER = os.path.join(UPLOAD_FOLDER, "files")
 
-ALLOWED_EXTENSIONS = {
-    "exe", "dll", "so", "elf", "bin", "out", "o",
-    "sys", "drv", "scr", "com", "bat", "sh",
-    "apk", "dex", "jar", "pyc", "pyd",
-}
-
-
 def _allowed(filename):
-    if "." not in filename:
-        return True  # binary without extension — OK
-    ext = filename.rsplit(".", 1)[-1].lower()
-    return ext in ALLOWED_EXTENSIONS
+    return True  # reverify detects format from magic bytes, not extension
 
 
 @reverify_tool_blueprint.route("/", methods=["GET"])
