@@ -117,8 +117,34 @@ else
     fi
 fi
 
-# ── Step 5: Patch case_api.py ─────────────────────────────────────────────────
-echo "[5/5] Patching case_api.py..."
+# ── Step 5: Install Mattermost notify_user module ─────────────────────────────
+echo "[5/6] Installing Mattermost notify_user module..."
+NOTIFY_DIR="$APP_DIR/modules/notify_user"
+if [ -d "$NOTIFY_DIR" ]; then
+    cp notify_user/mattermost.py "$NOTIFY_DIR/"
+    ok "Mattermost notify module installed: $NOTIFY_DIR/mattermost.py"
+else
+    warn "notify_user directory not found: $NOTIFY_DIR — skipping Mattermost module"
+fi
+
+# Add Mattermost config to config_module.py (idempotent)
+CONFIG_FILE="$FLOWINTEL_DIR/conf/config_module.py"
+if grep -q "MATTERMOST_WEBHOOK_URL" "$CONFIG_FILE"; then
+    warn "Mattermost config already in $CONFIG_FILE — skipping"
+else
+    cat >> "$CONFIG_FILE" << 'CONF'
+
+# Mattermost incoming webhook
+MATTERMOST_WEBHOOK_URL = ""
+MATTERMOST_CHANNEL = ""
+MATTERMOST_ENABLED = False
+CONF
+    ok "Mattermost config added to $CONFIG_FILE"
+    warn "Set MATTERMOST_WEBHOOK_URL and MATTERMOST_ENABLED=True in $CONFIG_FILE to activate"
+fi
+
+# ── Step 6: Patch case_api.py ─────────────────────────────────────────────────
+echo "[6/6] Patching case_api.py..."
 if [ "$SKIP_PATCH" = "1" ]; then
     warn "Skipping case_api patch (SKIP_PATCH=1)"
 elif grep -q "run_analyze_module" "$CASE_API"; then
@@ -139,7 +165,8 @@ echo ""
 echo -e "${GREEN}Installation complete.${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Restart Flowintel:  systemctl restart flowintel"
-echo "  2. Open: https://<your-flowintel>/reverify/"
-echo "  3. Ensure a MISP connector is configured under Flowintel → Connectors"
+echo "  1. Set MATTERMOST_WEBHOOK_URL and MATTERMOST_ENABLED=True in conf/config_module.py (optional)"
+echo "  2. Restart Flowintel:  systemctl restart flowintel"
+echo "  3. Open: https://<your-flowintel>/reverify/"
+echo "  4. Ensure a MISP connector is configured under Flowintel → Connectors"
 echo ""
