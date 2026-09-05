@@ -105,13 +105,13 @@
 
 ### Observable extraction & enrichment pipeline
 
-Extract observables from triage findings and enrich each type through dedicated sources:
+`enrich_observable` analyze module — live on server:
 
-| Observable | Sources | Tools |
-|------------|---------|-------|
-| Domain / IP | RDAP, passive DNS, ASN lookup | — |
-| URL | Redirect chain, screenshot | Lookyloo |
-| Hash | Local corpus matching | TLSH, ssdeep |
+| Observable | Sources | Tools | Status |
+|------------|---------|-------|--------|
+| Domain / IP | RDAP, CIRCL passive DNS, RIPE Stat ASN | — | Done |
+| URL | Redirect chain, screenshot | Lookyloo (CIRCL public) | Done |
+| Hash | Local corpus fuzzy match | TLSH, ssdeep | Done |
 
 Output feeds into **local correlation** — relationships across cases and campaigns —
 before reaching analyst assessment.
@@ -132,7 +132,7 @@ Output: targeted mitigation or advisory per case / campaign.
 
 ## Considering
 
-- Integration mechanism for enrichment sources inside Flowintel
-- Local corpus format for TLSH/ssdeep fuzzy hash matching
-- Lookyloo integration for URL analysis
-- How to represent relationships between observables inside Flowintel cases
+- Integration mechanism for enrichment pipeline inside Flowintel case workflow
+- How to represent relationships between observables across cases (local correlation layer)
+- Lookyloo private instance on dedicated VM (currently using CIRCL public — slow, no privacy)
+- angr integration for proof-of-exploitability after Ghidra triage
