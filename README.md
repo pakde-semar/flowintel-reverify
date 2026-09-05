@@ -4,6 +4,10 @@ Flowintel module that brings [Reverify](https://github.com/2akouwu/reverify) bin
 
 **The AI proposes. The bytes decide.** — every claim about a binary is checked against the real bytes.
 
+## Documentation
+
+- **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage guide: upload, push to MISP, API automation, MISP object mapping
+
 ## What it does
 
 When called on a Flowintel case, the `reverify_binary` module:
@@ -13,9 +17,11 @@ When called on a Flowintel case, the `reverify_binary` module:
 3. Returns structured findings back to the case:
    - File type, architecture, bitness
    - Sections, imports, exports
+   - MD5 / SHA1 / SHA256 hashes
    - String extraction with offsets
    - Entry-point disassembly (full mode)
    - Suspicious string detection (full mode)
+4. Optionally pushes structured objects to a connected MISP instance
 
 ## Use case
 
@@ -27,19 +33,19 @@ Flowintel Case (malware incident)
        ├── Imports: CreateRemoteThread, VirtualAlloc, WriteProcessMemory ...
        ├── Suspicious strings: http://c2.evil.com, cmd.exe, base64
        ├── Entry disasm: endbr64 / push rbp / ...
-       └── → Push findings to MISP via existing connector
+       └── → Push findings to MISP as file/pe/pe-section objects
 ```
 
 ## Requirements
 
 - [Flowintel](https://github.com/flowintel/flowintel) (running instance)
-- [Reverify](https://github.com/2akouwu/reverify) installed at `/opt/reverfy/`
+- [Reverify](https://github.com/2akouwu/reverify) installed in the Flowintel venv
 - Python 3.10+
 
 ## Installation
 
 ```bash
-git clone https://github.com/<your-org>/flowintel-reverify.git
+git clone https://github.com/pakde-semar/flowintel-reverify.git
 cd flowintel-reverify
 
 # Install module into Flowintel
@@ -55,45 +61,36 @@ If Reverify is installed in a non-default path, set the env var before starting 
 export REVERIFY_VENV=/path/to/reverify/venv/lib/python3.12/site-packages
 ```
 
-## Usage in Flowintel
+## Quick start
+
+### Upload a new binary (web UI)
+
+Navigate to **Analyser → Reverify Binary** in the Flowintel sidebar.
+Fill in a case title, upload the binary, choose analysis depth, and optionally toggle **Push to MISP**.
+
+### Push an existing case to MISP
+
+Navigate to **Analyser → Push Case to MISP**, select the case and file, and submit.
 
 ### Via API
 
-Gunakan endpoint `run_analyze_module` (tidak butuh MISP connector instance):
-
 ```bash
-# Quick analysis (parse + strings)
-curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/run_analyze_module \
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
   -H "X-API-KEY: <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "module": "reverify_binary",
     "payload": {
-      "file_path": "/path/to/sample.exe",
-      "depth": "quick"
-    }
-  }'
-
-# Full analysis (+ disasm + suspicious string detection)
-curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/run_analyze_module \
-  -H "X-API-KEY: <your-api-key>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "module": "reverify_binary",
-    "payload": {
-      "file_path": "/path/to/sample.exe",
-      "depth": "full"
+      "file_path": "/opt/flowintel/uploads/files/<uuid>",
+      "depth": "full",
+      "display_name": "sample.exe",
+      "push_to_misp": true
     }
   }'
 ```
 
-> **Catatan implementasi**: Flowintel membutuhkan patch `case_api.py` untuk menambahkan route
-> `/<cid>/run_analyze_module` — route ini ada di repo ini sebagai `patch/case_api_analyze_route.patch`.
-
-### Via case object attribute
-
-Add an object to the case with attribute `object_relation` = `filename` or `malware-sample`
-and set the `value` to the absolute path of the binary. The module will pick it up automatically.
+> The `run_analyze_module` route requires a patch to Flowintel's `case_api.py`.
+> The patch is included in this repo at `patch/case_api_analyze_route.patch`.
 
 ## Payload options
 
@@ -101,6 +98,8 @@ and set the `value` to the absolute path of the binary. The module will pick it 
 |-----|------|---------|-------------|
 | `file_path` | string | — | Absolute path to binary on the server |
 | `depth` | `"quick"` \| `"full"` | `"quick"` | Analysis depth |
+| `display_name` | string | basename of file_path | Original filename shown in notes and MISP |
+| `push_to_misp` | boolean | `false` | Create a MISP event from findings |
 
 ## Module response
 
@@ -116,17 +115,16 @@ and set the `value` to the absolute path of the binary. The module will pick it 
     "entry_point": "0x6d30",
     "file_size": 142312,
     "sections": [".text", ".rdata", ".data", ".rsrc", ".reloc"],
-    "imports": ["CreateRemoteThread", "VirtualAlloc", ...],
+    "imports": ["CreateRemoteThread", "VirtualAlloc", "WriteProcessMemory"],
     "exports": [],
-    "strings": [{"offset": "0x318", "encoding": "ASCII", "value": "cmd.exe"}],
     "strings_total": 312,
-    "disasm_entry": [
-      {"address": "0x1000", "mnemonic": "endbr64", "op_str": ""},
-      ...
-    ],
+    "md5": "d41d8cd98f00b204e9800998ecf8427e",
+    "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "suspicious_strings": [...],
     "suspicious_count": 7
-  }
+  },
+  "misp_event_url": "https://<misp>/events/view/2117"
 }
 ```
 
