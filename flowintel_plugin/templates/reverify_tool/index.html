@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Reverify Binary Analysis</title>
+{{ super() }}
+{% endblock %}
+
+{% block content %}
+<div class="case-core-style mb-3" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%); border-radius: 8px; color: white; padding: 1.25rem 1.5rem;">
+    <div class="d-flex align-items-center gap-3">
+        <i class="fa-solid fa-magnifying-glass-chart fa-2x" style="opacity: 0.85;"></i>
+        <div>
+            <h5 class="mb-0 fw-bold">Reverify Binary Analysis</h5>
+            <small style="opacity: 0.75;">Upload a binary — create a case — get deterministic RE findings</small>
+        </div>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endwith %}
+
+<div class="row justify-content-center mt-3">
+<div class="col-lg-7 col-md-9">
+
+<div class="card shadow-sm border-0">
+  <div class="card-header d-flex align-items-center gap-2" style="background: #f8f9fa;">
+      <i class="fa-solid fa-file-code text-primary"></i>
+      <strong>New Binary Analysis Case</strong>
+  </div>
+  <div class="card-body p-4">
+    <form action="{{ url_for('reverify_tool.analyze') }}" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <!-- Case title -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-folder-open me-1 text-muted"></i> Case Title <span class="text-danger">*</span>
+        </label>
+        <input type="text" name="title" class="form-control" placeholder="e.g. Malware Sample — 2026-09-05" required>
+      </div>
+
+      <!-- Description -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-align-left me-1 text-muted"></i> Description
+        </label>
+        <textarea name="description" class="form-control" rows="2" placeholder="Optional context for this case..."></textarea>
+      </div>
+
+      <!-- File upload -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-upload me-1 text-muted"></i> Binary File <span class="text-danger">*</span>
+        </label>
+        <input type="file" name="binary" id="binary_input" class="form-control" required>
+        <div class="form-text text-muted">
+            ELF, PE (.exe/.dll), Mach-O, raw binary, APK/DEX, .so, .sys, scripts, etc.
+        </div>
+        <!-- File preview bar -->
+        <div id="file_preview" class="mt-2 p-2 rounded d-none" style="background: #f0f4ff; border: 1px solid #d0d8f0; font-size: 0.85rem;">
+            <i class="fa-solid fa-file me-1 text-primary"></i>
+            <span id="file_name"></span>
+            <span id="file_size" class="text-muted ms-2"></span>
+        </div>
+      </div>
+
+      <!-- Analysis depth -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-layer-group me-1 text-muted"></i> Analysis Depth
+        </label>
+        <div class="d-flex gap-3">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="depth" id="depth_quick" value="quick" checked>
+            <label class="form-check-label" for="depth_quick">
+                <strong>Quick</strong> <span class="text-muted">— header + strings</span>
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="depth" id="depth_full" value="full">
+            <label class="form-check-label" for="depth_full">
+                <strong>Full</strong> <span class="text-muted">— + disasm entry point + suspicious string detection</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <div class="d-grid">
+        <button type="submit" class="btn btn-primary btn-lg" id="submit_btn">
+            <i class="fa-solid fa-magnifying-glass me-2"></i>Create Case &amp; Analyze
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- What you get -->
+<div class="card mt-3 border-0 shadow-sm">
+  <div class="card-body p-3">
+    <p class="mb-2 text-muted" style="font-size: 0.85rem;"><strong>What the analysis returns:</strong></p>
+    <div class="row g-2" style="font-size: 0.82rem;">
+      <div class="col-6">
+        <div class="d-flex align-items-start gap-2">
+          <i class="fa-solid fa-check text-success mt-1"></i>
+          <span>File type, architecture, bitness</span>
+        </div>
+        <div class="d-flex align-items-start gap-2 mt-1">
+          <i class="fa-solid fa-check text-success mt-1"></i>
+          <span>Sections, imports, exports</span>
+        </div>
+        <div class="d-flex align-items-start gap-2 mt-1">
+          <i class="fa-solid fa-check text-success mt-1"></i>
+          <span>String extraction with offsets</span>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="d-flex align-items-start gap-2">
+          <i class="fa-solid fa-check text-primary mt-1"></i>
+          <span>Entry-point disassembly <span class="badge bg-primary bg-opacity-10 text-primary">full</span></span>
+        </div>
+        <div class="d-flex align-items-start gap-2 mt-1">
+          <i class="fa-solid fa-check text-primary mt-1"></i>
+          <span>Suspicious string detection <span class="badge bg-primary bg-opacity-10 text-primary">full</span></span>
+        </div>
+        <div class="d-flex align-items-start gap-2 mt-1">
+          <i class="fa-solid fa-check text-success mt-1"></i>
+          <span>Results saved to Case Notes</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<script>
+document.getElementById('binary_input').addEventListener('change', function() {
+    const file = this.files[0];
+    const preview = document.getElementById('file_preview');
+    if (file) {
+        document.getElementById('file_name').textContent = file.name;
+        const mb = (file.size / 1048576).toFixed(2);
+        document.getElementById('file_size').textContent = `(${mb} MB)`;
+        preview.classList.remove('d-none');
+    } else {
+        preview.classList.add('d-none');
+    }
+});
+
+document.querySelector('form').addEventListener('submit', function() {
+    const btn = document.getElementById('submit_btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing…';
+});
+</script>
+{% endblock %}
