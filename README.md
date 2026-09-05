@@ -11,8 +11,7 @@ into case workflows — with automatic triage, structured findings, and
 ## Documentation
 
 - **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage guide: upload, push to MISP, API automation, MISP object mapping
-- **[COMPARISON.md](docs/COMPARISON.md)** — Ghidra vs Reverify: feature comparison, when to use each, how they complement each other
-- **[COMPARISON_ANGR.md](docs/COMPARISON_ANGR.md)** — angr vs Reverify: symbolic execution vs static triage, complementary workflow
+- **[COMPARISON.md](docs/COMPARISON.md)** — Ghidra vs Reverify vs angr: feature comparison tables, when to use each, tiered workflow
 
 ---
 
