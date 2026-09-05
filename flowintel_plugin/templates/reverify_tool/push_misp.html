@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Push Case ke MISP — Reverify</title>
+{{ super() }}
+{% endblock %}
+
+{% block content %}
+<div class="case-core-style mb-3" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%); border-radius: 8px; color: white; padding: 1.25rem 1.5rem;">
+    <div class="d-flex align-items-center gap-3">
+        <i class="fa-solid fa-share-nodes fa-2x" style="opacity: 0.85;"></i>
+        <div>
+            <h5 class="mb-0 fw-bold">Push Case ke MISP</h5>
+            <small style="opacity: 0.75;">Pilih case yang sudah ada → analisis ulang → buat MISP event</small>
+        </div>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endwith %}
+
+<div class="row justify-content-center mt-3">
+<div class="col-lg-7 col-md-9">
+
+{% if not cases %}
+<div class="alert alert-warning">
+    Tidak ada case dengan file yang bisa di-push. Upload binary terlebih dahulu via
+    <a href="{{ url_for('reverify_tool.index') }}">Reverify Binary Analysis</a>.
+</div>
+{% else %}
+<div class="card shadow-sm border-0">
+  <div class="card-header d-flex align-items-center gap-2" style="background: #f8f9fa;">
+      <i class="fa-solid fa-share-nodes text-primary"></i>
+      <strong>Pilih Case &amp; File</strong>
+  </div>
+  <div class="card-body p-4">
+    <form method="post" id="push_form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <!-- Case selector -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-folder-open me-1 text-muted"></i> Case
+        </label>
+        <select name="case_id" id="case_select" class="form-select" required onchange="updateFiles()">
+          <option value="">— pilih case —</option>
+          {% for item in cases %}
+          <option value="{{ item.case.id }}"
+                  data-files="{{ item.files | map(attribute='uuid') | list | tojson }}"
+                  data-names="{{ item.files | map(attribute='name') | list | tojson }}">
+            #{{ item.case.id }} — {{ item.case.title }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- File selector (populated by JS) -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-file-code me-1 text-muted"></i> File
+        </label>
+        <select name="file_uuid" id="file_select" class="form-select" required disabled>
+          <option value="">— pilih case dulu —</option>
+        </select>
+      </div>
+
+      <!-- Depth -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold">
+            <i class="fa-solid fa-layer-group me-1 text-muted"></i> Analysis Depth
+        </label>
+        <div class="d-flex gap-3">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="depth" id="depth_quick" value="quick" checked>
+            <label class="form-check-label" for="depth_quick">
+                <strong>Quick</strong> <span class="text-muted">— header + strings</span>
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="depth" id="depth_full" value="full">
+            <label class="form-check-label" for="depth_full">
+                <strong>Full</strong> <span class="text-muted">— + disasm + suspicious strings</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-grid">
+        <button type="submit" class="btn btn-primary btn-lg" id="submit_btn">
+            <i class="fa-solid fa-share-nodes me-2"></i>Analisis &amp; Push ke MISP
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="mt-3 text-center">
+    <a href="{{ url_for('reverify_tool.index') }}" class="text-muted" style="font-size: 0.88rem;">
+        <i class="fa-solid fa-arrow-left me-1"></i>Kembali ke Upload Binary
+    </a>
+</div>
+
+</div>
+</div>
+
+<script>
+const caseData = {};
+{% for item in cases %}
+caseData[{{ item.case.id }}] = {
+    uuids: {{ item.files | map(attribute='uuid') | list | tojson }},
+    names: {{ item.files | map(attribute='name') | list | tojson }},
+};
+{% endfor %}
+
+function updateFiles() {
+    const cid = document.getElementById('case_select').value;
+    const sel = document.getElementById('file_select');
+    sel.innerHTML = '';
+    if (!cid || !caseData[cid]) {
+        sel.innerHTML = '<option value="">— pilih case dulu —</option>';
+        sel.disabled = true;
+        return;
+    }
+    const d = caseData[cid];
+    d.uuids.forEach((uuid, i) => {
+        const opt = document.createElement('option');
+        opt.value = uuid;
+        opt.textContent = d.names[i] || uuid;
+        sel.appendChild(opt);
+    });
+    sel.disabled = false;
+}
+
+document.getElementById('push_form').addEventListener('submit', function() {
+    const btn = document.getElementById('submit_btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Menganalisis & push…';
+});
+</script>
+{% endblock %}

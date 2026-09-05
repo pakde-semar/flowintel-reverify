@@ -126,3 +126,72 @@ def analyze():
         flash(f"Analysis error: {exc}", "warning")
 
     return redirect(f"/case/{case.id}")
+
+
+@reverify_tool_blueprint.route("/push_misp", methods=["GET"])
+@login_required
+def push_misp_form():
+    cases = Case.query.order_by(Case.id.desc()).limit(50).all()
+    cases_with_files = []
+    for c in cases:
+        files = File.query.filter_by(case_id=c.id).all()
+        if files:
+            cases_with_files.append({"case": c, "files": files})
+    return render_template("reverify_tool/push_misp.html", cases=cases_with_files)
+
+
+@reverify_tool_blueprint.route("/push_misp", methods=["POST"])
+@login_required
+def push_misp_submit():
+    case_id = request.form.get("case_id", type=int)
+    file_uuid = request.form.get("file_uuid", "").strip()
+    depth = request.form.get("depth", "quick")
+
+    if not case_id or not file_uuid:
+        flash("Pilih case dan file.", "danger")
+        return redirect(url_for("reverify_tool.push_misp_form"))
+
+    case_orm = Case.query.get(case_id)
+    file_orm = File.query.filter_by(uuid=file_uuid, case_id=case_id).first()
+    if not case_orm or not file_orm:
+        flash("Case atau file tidak ditemukan.", "danger")
+        return redirect(url_for("reverify_tool.push_misp_form"))
+
+    file_path = os.path.join(FILE_FOLDER, file_uuid)
+    if not os.path.exists(file_path):
+        flash(f"File tidak ditemukan di disk: {file_uuid}", "danger")
+        return redirect(url_for("reverify_tool.push_misp_form"))
+
+    try:
+        from app.utils.utils import get_modules_list
+        modules, _ = get_modules_list()
+        handler = modules.get("reverify_binary")
+        if not handler:
+            flash("reverify_binary module tidak ditemukan.", "warning")
+            return redirect(url_for("reverify_tool.push_misp_form"))
+
+        case_dict = case_orm.to_json()
+        case_dict["tasks"] = []
+        result = handler.handler(
+            instance={},
+            case=case_dict,
+            user={"id": current_user.id, "email": current_user.email},
+            case_model=CaseModel,
+            db_session=db,
+            payload={
+                "file_path": file_path,
+                "depth": depth,
+                "display_name": file_orm.name,
+                "push_to_misp": True,
+            },
+        )
+        misp_url = result.get("misp_event_url") if result else None
+        misp_err = result.get("misp_error") if result else "unknown error"
+        if misp_url:
+            flash(f"MISP event dibuat: {misp_url}", "success")
+        else:
+            flash(f"MISP push gagal: {misp_err}", "danger")
+    except Exception as exc:
+        flash(f"Error: {exc}", "danger")
+
+    return redirect(f"/case/{case_id}")
