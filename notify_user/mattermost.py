@@ -28,7 +28,8 @@ def handler(task, case, current_user, user):
     case_id = case.id if hasattr(case, "id") else case.get("id", "")
     case_title = case.title if hasattr(case, "title") else case.get("title", "")
 
-    case_url = f"http://{Config.ORIGIN_URL}/case/{case_id}"
+    base_url = getattr(Config, "FLOWINTEL_URL", f"http://{Config.ORIGIN_URL}").rstrip("/")
+    case_url = f"{base_url}/case/{case_id}"
 
     lines = [
         f"**{user_name}**, your attention is required on a case.",
