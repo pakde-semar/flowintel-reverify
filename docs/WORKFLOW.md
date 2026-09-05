@@ -1,56 +1,55 @@
-# Malware Triage Pipeline — Workflow Guide
+# Malware Triage & Observable Enrichment — Workflow Guide
 
-End-to-end reference for the three-stage triage pipeline:
-static analysis → YARA rule generation → evidence distribution.
+End-to-end reference for both pipelines:
+binary triage (static analysis → YARA → evidence distribution)
+and observable enrichment (domain · IP · URL · hash).
 
 ---
 
 ## Overview
 
 ```
-Mattermost                    Binary file / API
-    │                               │
-    │  /flowintel <title>           │  upload or curl
-    ▼                               ▼
-┌─────────────────────────────────────────────────────────┐
-│  Flowintel                                              │
-│                                                         │
-│  Stage 1 — Static analysis                             │
-│    • File type, architecture, bitness                   │
-│    • MD5 / SHA1 / SHA256                                │
-│    • Sections, imports, exports                         │
-│    • String extraction            (quick + full)        │
-│    • Entry-point disassembly      (full)                │
-│    • IOC string classification    (full)                │
-│                                                         │
-│  Stage 2 — YARA rule generation                        │
-│    • Rule built from hashes + IOC strings               │
-│    • Validated before save                              │
-│    • Written to Case Notes — analyst edits and ships    │
-│                                                         │
-│  Stage 3 — Evidence distribution  (optional)           │
-│    • MISP event created with typed objects              │
-│    • Objects synced back to Flowintel MISP tab          │
-│    • Mattermost alert to #flowintel-alerts              │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-           ┌────────────┴────────────┐
-           ▼                         ▼
-┌──────────────────────┐   ┌─────────────────────────────┐
-│  MISP Event          │   │  Mattermost #flowintel-alerts│
-│  ├── file object     │   │                             │
-│  ├── pe / elf object │   │  ✅ Case #17 created         │
-│  ├── pe-section ×N   │   │  Title: ...                 │
-│  └── IOC attributes  │   │  Link: https://...          │
-└──────────┬───────────┘   └─────────────────────────────┘
+Mattermost                    Binary file / API          Observable / API
+    │                               │                          │
+    │  /flowintel <title>           │  upload or curl          │  curl
+    ▼                               ▼                          ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Flowintel Case                                                          │
+│                                                                          │
+│  ┌──────────────────────────────────┐  ┌───────────────────────────────┐│
+│  │  Binary triage pipeline          │  │  Observable enrichment         ││
+│  │                                  │  │                               ││
+│  │  Stage 1 — Static analysis       │  │  Domain → RDAP + CIRCL PDNS   ││
+│  │    file type, arch, hashes,      │  │  IP     → RDAP + RIPE Stat    ││
+│  │    sections, imports, strings,   │  │  URL    → Lookyloo (CIRCL)    ││
+│  │    IOC classification            │  │  Hash   → CIRCL hashlookup +  ││
+│  │                                  │  │          TLSH/ssdeep corpus   ││
+│  │  Stage 2 — YARA rule generation  │  │                               ││
+│  │    hashes + IOC strings → rule   │  │  No API key required          ││
+│  │    validated + saved to Notes    │  │  Results written to Notes     ││
+│  │                                  │  └───────────────────────────────┘│
+│  │  Stage 3 — Evidence distribution │                                   │
+│  │    MISP event + MISP tab sync    │                                   │
+│  │    Mattermost #flowintel-alerts  │                                   │
+│  └──────────────────────────────────┘                                   │
+└──────────────────────────────────────────────────────────────────────────┘
+           │                                         │
+           ▼                                         │
+┌──────────────────────┐                             │
+│  MISP Event          │                             │
+│  ├── file object     │◄────────────────────────────┘  (IOCs from enrichment
+│  ├── pe / elf object │                                  feed back to MISP)
+│  ├── pe-section ×N   │
+│  └── IOC attributes  │
+└──────────┬───────────┘
            │ auto-sync back
            ▼
-┌─────────────────────────────────────────────────────────┐
-│  Flowintel Case — MISP tab                              │
-│   ├── file object with all attributes                   │
-│   ├── pe / elf object                                   │
-│   └── pe-section / elf-section objects (×N)             │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────┐
+│  Flowintel Case — MISP tab             │
+│   ├── file object with all attributes  │
+│   ├── pe / elf object                  │
+│   └── pe-section / elf-section (×N)    │
+└────────────────────────────────────────┘
 ```
 
 ---
@@ -177,7 +176,7 @@ Click **Analyze & Push to MISP**. The module will:
 
 ---
 
-## Workflow C — API / automation
+## Workflow C — Binary triage via API
 
 For scripted pipelines or CI integration.
 
@@ -239,7 +238,88 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 
 ---
 
-## Workflow D — Open a case from Mattermost
+## Workflow D — Observable enrichment via API
+
+Use after binary triage to enrich IOCs extracted from the findings — or for any standalone
+observable. All enrichment is written to the case Notes tab automatically.
+
+### Hash — CIRCL hashlookup + fuzzy match
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "enrich_observable",
+    "payload": {
+      "value": "f15a57d91734a2308b129a1ed4add2c487eadec9b8c2d46dbfd3d2f23b5c28d7"
+    }
+  }'
+```
+
+CIRCL hashlookup checks the hash against NSRL (known clean) and malshare (known malicious).
+If `KnownMalicious` is set, the note flags it with ⚠️.
+TLSH and ssdeep then compare the file against every other file in the local corpus.
+
+### Domain
+
+```bash
+-d '{"module": "enrich_observable", "payload": {"value": "malicious.example.com"}}'
+```
+
+Returns: registrar, registered/expires dates, nameservers, CIRCL passive DNS history.
+
+### IP
+
+```bash
+-d '{"module": "enrich_observable", "payload": {"value": "198.51.100.1"}}'
+```
+
+Returns: RDAP network name, country, CIDR, RIPE Stat ASN and holder.
+
+### URL
+
+```bash
+-d '{"module": "enrich_observable", "payload": {"value": "https://malicious.example.com/stage2"}}'
+```
+
+Submits to Lookyloo (CIRCL public). Returns redirect chain, IPs contacted, screenshot and
+capture links. If the public instance times out, the capture UUID and link are still saved
+so the analyst can check later.
+
+### Type auto-detection
+
+The type is inferred automatically from the value:
+
+| Priority | Pattern | Detected type |
+|----------|---------|---------------|
+| 1 | Starts with `http://` or `https://` | `url` |
+| 2 | IPv4 format | `ip` |
+| 3 | 32 / 40 / 64 hex chars | `hash` |
+| 4 | Domain pattern | `domain` |
+
+Pass `"type"` explicitly to override.
+
+### Note written to case
+
+```
+## Enrichment: `malicious.example.com` (domain)
+
+**RDAP registration:**
+- Registrar: GoDaddy
+- Registered: 2024-01-15T00:00:00Z
+- Expires: 2025-01-15T00:00:00Z
+- Status: clientTransferProhibited
+- Nameservers: ns1.malicious.example.com
+
+**CIRCL Passive DNS (recent resolutions):**
+- `A` → `198.51.100.1` (last seen: 2026-08-20, count: 42)
+- `MX` → `mail.malicious.example.com` (last seen: 2026-07-01, count: 5)
+```
+
+---
+
+## Workflow E — Open a case from Mattermost
 
 Use when an incident is reported in Mattermost and you want to open a Flowintel case
 without leaving the chat.
@@ -294,7 +374,7 @@ MATTERMOST_SLASH_TOKEN = "<token-from-mattermost-slash-command>"  # optional
 
 ---
 
-## Workflow E — Notify a user via Mattermost from Flowintel
+## Workflow F — Notify a user via Mattermost from Flowintel
 
 Use when you want to alert a team member about a task inside Flowintel.
 

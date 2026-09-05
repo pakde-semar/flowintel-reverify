@@ -1,6 +1,7 @@
 # flowintel-reverify
 
-A multi-stage malware triage pipeline built on [Flowintel](https://github.com/flowintel/flowintel),
+A multi-stage malware triage and observable enrichment framework built on
+[Flowintel](https://github.com/flowintel/flowintel),
 using [Reverify](https://github.com/2akouwu/reverify) as its static analysis core.
 
 Every finding is grounded in raw bytes. Every step produces evidence an analyst can verify.
@@ -9,7 +10,7 @@ Every finding is grounded in raw bytes. Every step produces evidence an analyst 
 
 ## Documentation
 
-- **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage: upload, MISP push, Mattermost integration, API automation
+- **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage: upload, MISP push, Mattermost integration, observable enrichment, API automation
 - **[COMPARISON.md](docs/COMPARISON.md)** — Reverify · Ghidra · angr · YARA: when to use each, how they fit together
 - **[ROADMAP.md](ROADMAP.md)** — what is done and what is being considered next
 
@@ -17,7 +18,36 @@ Every finding is grounded in raw bytes. Every step produces evidence an analyst 
 
 ## What it does
 
-A binary enters the pipeline and exits as a structured case — with hashes, IOCs, a YARA detection rule,
+Two parallel pipelines share the same Flowintel case as their container:
+
+```
+┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐
+│  Binary triage pipeline              │  │  Observable enrichment pipeline       │
+│                                      │  │                                      │
+│  Stage 1 — Static analysis           │  │  Domain → RDAP + CIRCL passive DNS   │
+│    file type, arch, hashes,          │  │  IP     → RDAP + RIPE Stat ASN       │
+│    sections, imports, strings        │  │  URL    → Lookyloo redirect chain,   │
+│                                      │  │          screenshot                  │
+│  Stage 2 — YARA rule generation      │  │  Hash   → CIRCL hashlookup           │
+│    hashes + IOC strings → rule       │  │          (KnownMalicious flag) +      │
+│    validated + saved to Notes        │  │          TLSH/ssdeep local corpus    │
+│                                      │  │                                      │
+│  Stage 3 — Evidence distribution     │  │  All results written to case Notes   │
+│    MISP event + Flowintel MISP tab   │  │  No API key required for any source  │
+│    Mattermost #flowintel-alerts      │  │                                      │
+└──────────────────────────────────────┘  └──────────────────────────────────────┘
+                        │                                      │
+                        └──────────────┬───────────────────────┘
+                                       ▼
+                              FLOWINTEL CASE
+                         (Notes · MISP tab · Tasks)
+```
+
+---
+
+## Binary triage pipeline
+
+A binary enters and exits as a structured case — with hashes, IOCs, a YARA detection rule,
 and optionally a MISP event — without requiring any manual triage step.
 
 ```
@@ -56,19 +86,7 @@ Incoming binary
 └─────────────────────────────────────────────────────┘
 ```
 
-The analyst receives a case that already contains:
-- Structured findings they can dispute or confirm
-- A YARA rule they can tune and deploy immediately
-- A MISP event ready for sharing across the org
-
----
-
-## Pipeline stages
-
 ### Stage 1 — Static analysis
-
-Reverify parses the binary and extracts observable facts: format, structure, strings, hashes.
-No interpretation, no scoring — only what the bytes contain.
 
 | Category | Details |
 |----------|---------|
@@ -117,6 +135,45 @@ It is saved to the case Notes tab — the analyst edits, tunes, and deploys it f
 | MISP event | `file` + `pe`/`elf` + section objects + IOC attributes |
 | Flowintel MISP tab | Full sync from MISP — no manual import |
 | Mattermost | Case link posted to `#flowintel-alerts` |
+
+---
+
+## Observable enrichment pipeline
+
+The `enrich_observable` module runs on any observable extracted from the triage —
+or supplied directly. No API key required for any source.
+
+| Observable | Sources | What you get |
+|------------|---------|-------------|
+| Domain | RDAP + CIRCL Passive DNS | Registrar, nameservers, passive DNS history (up to 20 records) |
+| IP | RDAP + RIPE Stat | Network name, country, CIDR, ASN, prefix |
+| URL | Lookyloo (CIRCL public) | Redirect chain, IPs contacted, screenshot and capture links |
+| Hash | CIRCL hashlookup + local corpus fuzzy match | KnownMalicious flag, TLSH + ssdeep similarity vs all corpus files |
+
+Results are written to the case Notes tab automatically.
+
+### Hash enrichment detail
+
+[CIRCL hashlookup](https://hashlookup.circl.lu) checks the hash against known-good (NSRL)
+and known-bad (malshare, etc.) databases. If `KnownMalicious` is set, the note flags it prominently:
+
+```
+CIRCL hashlookup: KNOWN MALICIOUS ⚠️ (source: malshare.com)
+- File name: eicar.com
+- MIME type: text/plain
+- SHA256: 275a021b...
+```
+
+If the hash is not found in public databases (novel or private malware), TLSH and ssdeep
+fuzzy-match the file against every other file in the local Flowintel uploads corpus to detect
+structural variants — even across recompiled samples.
+
+### URL enrichment detail
+
+URLs are submitted to [Lookyloo](https://lookyloo.circl.lu) (CIRCL public instance).
+The capture returns a redirect chain, all IPs contacted, and a screenshot link.
+If the CIRCL public instance times out, the capture UUID and direct link are still included
+in the note so the analyst can check the result later.
 
 ---
 
@@ -207,6 +264,9 @@ MISP credentials are read from the Flowintel database — no separate configurat
 - [Flowintel](https://github.com/flowintel/flowintel)
 - [Reverify](https://github.com/2akouwu/reverify) installed in the Flowintel venv
 - [yara-python](https://github.com/VirusTotal/yara-python) installed in the Flowintel venv
+- [python-tlsh](https://pypi.org/project/python-tlsh/) installed in the Flowintel venv
+- [ssdeep](https://packages.debian.org/python3-ssdeep) — `apt install python3-ssdeep`
+- [requests](https://pypi.org/project/requests/) installed in the Flowintel venv
 - [MISP](https://github.com/MISP/MISP) instance connected to Flowintel *(for MISP push)*
 - Python 3.10+
 
@@ -226,7 +286,8 @@ systemctl restart flowintel
 Install dependencies in the Flowintel venv:
 
 ```bash
-/opt/flowintel/env/bin/pip install reverify yara-python
+/opt/flowintel/env/bin/pip install reverify yara-python python-tlsh
+sudo apt install python3-ssdeep
 ```
 
 If Reverify is installed outside the default path:
@@ -246,7 +307,7 @@ Fill in a case title, upload the binary, choose depth, and optionally toggle **P
 
 Format is detected from magic bytes — any file type is accepted.
 
-### Via API
+### Run binary triage via API
 
 ```bash
 curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
@@ -264,9 +325,37 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
   }'
 ```
 
+### Run observable enrichment via API
+
+```bash
+# Hash — CIRCL hashlookup + fuzzy match
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "enrich_observable",
+    "payload": {
+      "value": "f15a57d91734a2308b129a1ed4add2c487eadec9b8c2d46dbfd3d2f23b5c28d7"
+    }
+  }'
+
+# Domain
+curl ... -d '{"module": "enrich_observable", "payload": {"value": "malicious.example.com"}}'
+
+# IP
+curl ... -d '{"module": "enrich_observable", "payload": {"value": "198.51.100.1"}}'
+
+# URL
+curl ... -d '{"module": "enrich_observable", "payload": {"value": "https://malicious.example.com/stage2"}}'
+```
+
+Type is auto-detected from the value. Pass `"type"` explicitly if needed.
+
 ---
 
 ## Payload options
+
+### reverify_binary
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -276,19 +365,27 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 | `generate_yara` | boolean | `true` | Auto-generate YARA rule from hashes + IOC strings |
 | `push_to_misp` | boolean | `false` | Create MISP event and sync to case MISP tab |
 
-### Depth options
+### enrich_observable
 
-| Depth | What runs |
-|-------|-----------|
-| `quick` | Header, sections, imports, exports, strings, hashes |
-| `full` | Everything in quick + entry-point disassembly + IOC string classification |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `value` | string | — | The observable to enrich |
+| `type` | `"domain"` \| `"ip"` \| `"url"` \| `"hash"` | auto-detected | Observable type |
+| `corpus_path` | string | `/opt/flowintel/uploads/files/` | Path for TLSH/ssdeep corpus scan |
+| `lookyloo_url` | string | `https://lookyloo.circl.lu` | Lookyloo instance for URL capture |
 
-YARA rules generated from `full` mode use IOC strings as patterns.
-Rules from `quick` mode use hashes + generic strings.
+### Depth options (reverify_binary)
+
+| Depth | What runs | YARA strings source |
+|-------|-----------|---------------------|
+| `quick` | Header, sections, imports, exports, strings, hashes | Generic strings |
+| `full` | Everything in quick + entry-point disassembly + IOC classification | IOC strings: URLs, IPs, domains, registry keys |
 
 ---
 
 ## Module response
+
+### reverify_binary
 
 ```json
 {
@@ -312,6 +409,33 @@ Rules from `quick` mode use hashes + generic strings.
     "suspicious_count": 7
   },
   "misp_event_url": "https://<misp>/events/view/2125"
+}
+```
+
+### enrich_observable
+
+```json
+{
+  "type": "hash",
+  "value": "f15a57d9...",
+  "result": {
+    "hash": "f15a57d9...",
+    "hashlookup": {
+      "found": false,
+      "data": null,
+      "error": null
+    },
+    "tlsh": {
+      "hash": "T1A7B533...",
+      "matches": [{"file": "58f8670e-...", "score": 0}],
+      "error": null
+    },
+    "ssdeep": {
+      "hash": "49152:S2SCBk...",
+      "matches": [{"file": "58f8670e-...", "score": 100}],
+      "error": null
+    }
+  }
 }
 ```
 

@@ -142,7 +142,38 @@ The analyst receives a ready-to-deploy rule. They tune the condition
 
 ---
 
-## 4. All four together
+## 4. Observable enrichment sources
+
+The `enrich_observable` module extends the pipeline beyond binary analysis to cover
+any IOC extracted from triage findings.
+
+### CIRCL hashlookup vs local corpus fuzzy matching
+
+| Aspect | CIRCL hashlookup | TLSH + ssdeep (local corpus) |
+|--------|-----------------|------------------------------|
+| **Source** | Public database (NSRL + malshare + others) | Your own Flowintel uploads |
+| **What it tells you** | Is this hash known? Known malicious? | Are there structurally similar files in your corpus? |
+| **Requires file on disk?** | No — hash lookup only | Yes — file must be in corpus |
+| **API key required?** | No | No |
+| **Coverage** | Broad (millions of known files) | Narrow (only files you have uploaded) |
+| **Best for** | First-pass reputation check on any hash | Detecting recompiled variants across your own sample set |
+
+Both run automatically when the `hash` type is enriched. If the hash is not in CIRCL hashlookup
+(novel or private malware), fuzzy matching still runs against the local corpus.
+
+### URL enrichment — Lookyloo
+
+[Lookyloo](https://lookyloo.circl.lu) captures a full browser session for a URL — recording
+the redirect chain, all IPs contacted, and a screenshot. This is used for URLs extracted from
+binary analysis or supplied directly.
+
+The pipeline uses the CIRCL public instance (no authentication, no installation required).
+If a capture times out, the UUID and capture link are saved to the note so the analyst can
+check later.
+
+---
+
+## 5. All tools together
 
 Each tool occupies a distinct stage in the investigation lifecycle:
 
@@ -157,6 +188,16 @@ Incoming binary
 │           sections, imports, strings, IOCs              │
 │  Stage 2: YARA rule from hashes + IOC strings           │
 │  Stage 3: MISP event + Flowintel MISP tab               │
+└──────────────────────┬──────────────────────────────────┘
+                       │  IOCs extracted (domains, IPs, URLs, hashes)
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  enrich_observable  (automated, seconds)                │
+│                                                         │
+│  Domain → RDAP + CIRCL Passive DNS                      │
+│  IP     → RDAP + RIPE Stat ASN                          │
+│  URL    → Lookyloo redirect chain + screenshot          │
+│  Hash   → CIRCL hashlookup + TLSH/ssdeep corpus        │
 └──────────────────────┬──────────────────────────────────┘
                        │
             ┌──────────┴──────────┐
@@ -184,6 +225,7 @@ Incoming binary
 | Tool | Question it answers | Time | Entry point |
 |------|---------------------|------|-------------|
 | **Reverify** | *What is this file, and what does it contain?* | Seconds | Unknown file, no prior knowledge |
+| **enrich_observable** | *Are these IOCs known? What do they resolve to?* | Seconds | IOCs from triage or supplied directly |
 | **YARA** | *How many other files match this pattern?* | Sub-second | Known IOCs or generated rule |
 | **Ghidra** | *What does this binary do?* | Hours | Reverify flagged it as suspicious |
 | **angr** | *Can this binary be exploited, and how?* | Hours – days | Ghidra confirmed a vulnerability |
@@ -193,6 +235,8 @@ Incoming binary
 ## Summary
 
 > Use **Reverify** to triage an unknown file and generate structured evidence — hashes, IOCs, a YARA rule — in seconds.
+>
+> Use **enrich_observable** to look up every IOC from triage against open sources — reputation, passive DNS, redirect chains, fuzzy matches — without leaving Flowintel.
 >
 > Use **YARA** to hunt for variants across a file collection using the rule Reverify produced.
 >
