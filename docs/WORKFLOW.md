@@ -236,10 +236,10 @@ In any Mattermost channel, type:
 3. A notification appears in `#flowintel-alerts` with the case number and link:
 
 ```
-✅ Case #16 dibuat
-Judul: Suspicious dropper from HR email
+✅ Case #16 created
+Title: Suspicious dropper from HR email
 Link: https://<flowintel>/case/16
-Dibuka via Mattermost oleh @wahyu
+Opened via Mattermost by @wahyu
 ```
 
 4. The user who sent the command gets a private ephemeral confirmation

@@ -33,8 +33,8 @@ def create_case():
         return _ephemeral(
             "**Usage:** `/flowintel <case title> [| description]`\n\n"
             "**Examples:**\n"
-            "- `/flowintel Suspicious dropper dari email HR`\n"
-            "- `/flowintel Ransomware pada workstation | Ditemukan 09:00, endpoint: PC-042`"
+            "- `/flowintel Suspicious dropper from HR email`\n"
+            "- `/flowintel Ransomware on workstation | Found at 09:00, endpoint: PC-042`"
         )
 
     # Parse: title | description
@@ -43,7 +43,7 @@ def create_case():
     description = parts[1].strip() if len(parts) > 1 else f"Case opened via Mattermost by @{user_name}"
 
     if not title:
-        return _ephemeral("Case title tidak boleh kosong.")
+        return _ephemeral("Case title cannot be empty.")
 
     # Call Flowintel API
     api_key = getattr(Config, "FLOWINTEL_API_KEY", "")
@@ -57,16 +57,16 @@ def create_case():
             timeout=10
         )
     except Exception as e:
-        return _ephemeral(f"Gagal menghubungi Flowintel: {e}")
+        return _ephemeral(f"Failed to reach Flowintel: {e}")
 
     if resp.status_code == 201:
         case_id = resp.json().get("case_id", "?")
         case_url = f"{flowintel_url}/case/{case_id}"
         msg = (
-            f":white_check_mark: **Case #{case_id} dibuat**\n"
-            f"**Judul:** {title}\n"
+            f":white_check_mark: **Case #{case_id} created**\n"
+            f"**Title:** {title}\n"
             f"**Link:** {case_url}\n"
-            f"_Dibuka via Mattermost oleh @{user_name}_"
+            f"_Opened via Mattermost by @{user_name}_"
         )
         # Post to #flowintel-alerts via incoming webhook (more reliable than slash command response)
         webhook_url = getattr(Config, "MATTERMOST_WEBHOOK_URL", "")
@@ -76,10 +76,10 @@ def create_case():
             except Exception:
                 pass
         # Also return ephemeral ack so the user knows the command was received
-        return _ephemeral(f":white_check_mark: Case #{case_id} dibuat — lihat #flowintel-alerts")
+        return _ephemeral(f":white_check_mark: Case #{case_id} created — see #flowintel-alerts")
     else:
         msg = resp.json().get("message", resp.text)
-        return _ephemeral(f"Gagal membuat case: {msg}")
+        return _ephemeral(f"Failed to create case: {msg}")
 
 
 @mattermost_hook_blueprint.route('/status', methods=['GET'])
