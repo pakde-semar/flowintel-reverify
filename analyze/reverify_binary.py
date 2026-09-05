@@ -33,7 +33,7 @@ module_config = {
 
 # ── Reverify import (must be installed in the same Python env as Flowintel,
 #    or the path below must be added to sys.path) ──────────────────────────
-REVERIFY_VENV = os.environ.get("REVERIFY_VENV", "/opt/reverfy/venv/lib/python3.12/site-packages")
+REVERIFY_VENV = os.environ.get("REVERIFY_VENV", "/opt/flowintel/env/lib/python3.12/site-packages")
 if REVERIFY_VENV not in sys.path:
     sys.path.insert(0, REVERIFY_VENV)
 

@@ -1,0 +1,56 @@
+--- /tmp/claude-1000/-home-bagong/b40c083f-ffa8-46a2-9a46-00671fdbd25a/scratchpad/case_api.py.bak	2026-09-05 12:57:44.128609757 +0700
++++ /tmp/claude-1000/-home-bagong/b40c083f-ffa8-46a2-9a46-00671fdbd25a/scratchpad/case_api.py	2026-09-05 12:55:16.554614958 +0700
+@@ -699,7 +699,52 @@
+                 return {"message": "Please enter a 'module''"}, 400
+             return {"message": "Permission denied"}, 403
+         return {"message": "Case doesn't exist"}, 404
+-    
++
++
++@case_ns.route('/<cid>/run_analyze_module', methods=['POST'])
++@case_ns.doc(description='Run an analyze-type module on a case without a connector instance')
++class RunAnalyzeModule(Resource):
++    method_decorators = [api_required]
++    def post(self, cid):
++        from ..utils.utils import get_modules_list
++        case = CommonModel.get_case(cid)
++        if not case:
++            return {"message": "Case doesn't exist"}, 404
++        current_user = utils.get_user_from_api(request.headers)
++        if not CommonModel.get_present_in_case(cid, current_user) and not current_user.is_admin():
++            return {"message": "Permission denied"}, 403
++        if "module" not in request.json:
++            return {"message": "Please enter a 'module'"}, 400
++        module_name = request.json["module"]
++        payload = request.json.get("payload") or {}
++        modules, module_cfg = get_modules_list()
++        if module_name not in modules:
++            return {"message": f"Module '{module_name}' not found"}, 404
++        cfg = module_cfg.get(module_name, {})
++        if cfg.get("type") != "analyze":
++            return {"message": f"Module '{module_name}' is not an analyze module"}, 400
++        tasks = []
++        for task in case.tasks:
++            loc_task = task.to_json()
++            loc_task["status"] = CommonModel.get_status(task.status_id).name
++            tasks.append(loc_task)
++        case_dict = case.to_json()
++        case_dict["tasks"] = tasks
++        try:
++            user_dict = current_user.to_json() if hasattr(current_user, "to_json") else {"id": current_user.id, "email": current_user.email}
++            result = modules[module_name].handler(
++                instance={},
++                case=case_dict,
++                user=user_dict,
++                case_model=CaseModel,
++                db_session=db,
++                payload=payload,
++            )
++        except Exception as exc:
++            return {"message": f"Module error: {exc}"}, 500
++        CommonModel.save_history(case.uuid, current_user, f"Analyze module '{module_name}' run")
++        return {"result": result}, 200
++
+ 
+ @case_ns.route('/<cid>/get_note')
+ @case_ns.doc(description='Get note of a case', params={'cid': 'id of a case'})

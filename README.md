@@ -59,14 +59,15 @@ export REVERIFY_VENV=/path/to/reverify/venv/lib/python3.12/site-packages
 
 ### Via API
 
+Gunakan endpoint `run_analyze_module` (tidak butuh MISP connector instance):
+
 ```bash
 # Quick analysis (parse + strings)
-curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/call_module_case \
+curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/run_analyze_module \
   -H "X-API-KEY: <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "module": "reverify_binary",
-    "instance_id": 1,
     "payload": {
       "file_path": "/path/to/sample.exe",
       "depth": "quick"
@@ -74,18 +75,20 @@ curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/call_module_case \
   }'
 
 # Full analysis (+ disasm + suspicious string detection)
-curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/call_module_case \
+curl -X POST https://flowintel.iww.web.id/api/case/<case_id>/run_analyze_module \
   -H "X-API-KEY: <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "module": "reverify_binary",
-    "instance_id": 1,
     "payload": {
       "file_path": "/path/to/sample.exe",
       "depth": "full"
     }
   }'
 ```
+
+> **Catatan implementasi**: Flowintel membutuhkan patch `case_api.py` untuk menambahkan route
+> `/<cid>/run_analyze_module` — route ini ada di repo ini sebagai `patch/case_api_analyze_route.patch`.
 
 ### Via case object attribute
 
