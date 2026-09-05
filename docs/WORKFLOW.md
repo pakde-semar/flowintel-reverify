@@ -1,42 +1,46 @@
 # Reverify Binary Analysis — Workflow Guide
 
 This guide covers the end-to-end workflow for analyzing a binary file using
-the `reverify_binary` module integrated into Flowintel, from upload to MISP event creation.
+the `reverify_binary` module integrated into Flowintel, from upload to MISP event creation
+and Mattermost notifications.
 
 ---
 
 ## Overview
 
 ```
-Binary file
-    │
-    ▼
+Mattermost                    Binary file / API
+    │                               │
+    │  /flowintel <title>           │  upload or curl
+    ▼                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Flowintel /reverify/                                   │
+│  Flowintel                                              │
 │                                                         │
-│  1. Upload binary  ──►  New Case created                │
-│  2. Reverify analysis:                                  │
+│  Case created  ◄──────────────────────────────────────  │
+│                                                         │
+│  [if binary uploaded]                                   │
+│  Reverify analysis:                                     │
 │       • File type, architecture, bitness                │
 │       • Sections, imports, exports                      │
 │       • MD5 / SHA1 / SHA256 hashes                      │
 │       • String extraction (quick)                       │
 │       • Entry-point disasm + suspicious strings (full)  │
-│  3. Results written to Case Notes (Markdown)            │
-│  4. [Optional] Push structured objects to MISP          │
-└─────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────┐
-│  MISP Event (external)                                  │
-│   ├── Object: file  (filename, md5, sha1, sha256, size) │
-│   ├── Object: pe / elf  (arch, entrypoint, sections)    │
-│   ├── Objects: pe-section / elf-section  (×N)           │
-│   └── Attributes (full mode):                           │
-│        url · ip-dst · domain · regkey · pattern-in-file │
-└─────────────────────────────────────────────────────────┘
-    │
-    │  auto-sync back
-    ▼
+│  Results written to Case Notes (Markdown)               │
+│                                                         │
+│  [optional] Push to MISP                                │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+           ┌────────────┴────────────┐
+           ▼                         ▼
+┌──────────────────────┐   ┌─────────────────────────────┐
+│  MISP Event          │   │  Mattermost #flowintel-alerts│
+│  ├── file object     │   │                             │
+│  ├── pe / elf object │   │  ✅ Case #16 dibuat          │
+│  ├── pe-section ×N   │   │  Judul: ...                 │
+│  └── attributes      │   │  Link: https://...          │
+└──────────┬───────────┘   └─────────────────────────────┘
+           │ auto-sync back
+           ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Flowintel Case — MISP tab                              │
 │   ├── file object with all attributes                   │
@@ -201,6 +205,105 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
   },
   "misp_event_url": "https://<misp>/events/view/2117"
 }
+```
+
+---
+
+## Workflow D — Open a case from Mattermost
+
+Use this when an incident is reported in Mattermost and you want to open a Flowintel case
+without leaving the chat.
+
+### Command
+
+In any Mattermost channel, type:
+
+```
+/flowintel <case title> [| description]
+```
+
+**Examples:**
+
+```
+/flowintel Suspicious dropper from HR email
+/flowintel Ransomware on workstation PC-042 | Found at 09:00, still running, endpoint isolated
+```
+
+### What happens
+
+1. Mattermost POSTs the command to `https://<flowintel>/mattermost/create_case`
+2. Flowintel creates a new case immediately
+3. A notification appears in `#flowintel-alerts` with the case number and link:
+
+```
+✅ Case #16 dibuat
+Judul: Suspicious dropper from HR email
+Link: https://<flowintel>/case/16
+Dibuka via Mattermost oleh @wahyu
+```
+
+4. The user who sent the command gets a private ephemeral confirmation
+
+### Setup
+
+Register a slash command in Mattermost (**System Console → Integrations → Slash Commands → Add**):
+
+| Field | Value |
+|-------|-------|
+| Command trigger word | `flowintel` |
+| Request URL | `https://<flowintel>/mattermost/create_case` |
+| Request Method | POST |
+| Response username | `Flowintel` *(optional)* |
+| Autocomplete | Enabled |
+| Autocomplete hint | `<case title> [| description]` |
+
+Then set in Flowintel `conf/config_module.py`:
+
+```python
+FLOWINTEL_API_KEY      = "<flowintel-admin-api-key>"
+MATTERMOST_SLASH_TOKEN = "<token-from-mattermost-slash-command>"  # optional, for verification
+```
+
+---
+
+## Workflow E — Notify a user via Mattermost from Flowintel
+
+Use this when you want to alert a team member about a task inside Flowintel,
+and have the notification delivered to Mattermost.
+
+### Via Flowintel UI
+
+1. Open a case → open a **task**
+2. In the task's **Main** tab, find the list of assigned users
+3. Click the **bell icon** 🔔 next to a user (not yourself)
+4. In the modal, select **mattermost** from the module dropdown
+5. Click **Send**
+
+The user receives a notification in Mattermost's `#flowintel-alerts` channel:
+
+```
+**Wahyu**, your attention is required on a case.
+
+| Field        | Value                              |
+|--------------|------------------------------------|
+| Case         | [Suspicious dropper](https://...)  |
+| Case ID      | 16                                 |
+| Triggered by | Admin                              |
+| Task         | Initial triage                     |
+```
+
+> The bell icon only appears for **other users** assigned to the task — you cannot
+> notify yourself. Make sure at least one other user is assigned to the task.
+
+### Requirements
+
+In Flowintel `conf/config_module.py`:
+
+```python
+MATTERMOST_WEBHOOK_URL = "https://<mattermost>/hooks/<token>"
+MATTERMOST_CHANNEL     = "flowintel-alerts"
+MATTERMOST_ENABLED     = True
+FLOWINTEL_URL          = "https://<flowintel>"
 ```
 
 ---
