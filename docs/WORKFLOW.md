@@ -397,7 +397,139 @@ _case link created ✓_
 
 ---
 
-## Workflow F — Open a case from Mattermost
+## Workflow F — Assessment suggestion
+
+Run after `correlate_observables` to get a scored, rule-based recommendation before
+the analyst records a final decision. `suggest_assessment` scans all case Notes and
+scores 16 signals across three decision axes.
+
+### Run
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"module": "suggest_assessment", "payload": {}}'
+```
+
+No payload required.
+
+### Response
+
+```json
+{
+  "case_id": 17,
+  "decision": "needs-ghidra",
+  "scores": { "ghidra": 7, "angr": 0, "confirmed": 0 },
+  "signals": [
+    { "key": "process_injection", "weight": 3, "description": "Process injection APIs (VirtualAlloc, CreateRemoteThread)" },
+    { "key": "no_strings",        "weight": 2, "description": "No extractable strings (obfuscated binary)" },
+    { "key": "low_level_alloc",   "weight": 1, "description": "Low-level memory allocation APIs" },
+    { "key": "correlation_found", "weight": 1, "description": "Correlation with other cases — possible campaign" }
+  ]
+}
+```
+
+### Decision logic
+
+| Condition | Suggested decision |
+|-----------|-------------------|
+| `angr_score ≥ 4` | `needs-angr` |
+| `ghidra_score ≥ 3` | `needs-ghidra` |
+| `confirmed_score < 0` and `ghidra_score < 3` | `confirmed` |
+| No strong signals | `uncertain — manual review` |
+
+### Note written to case
+
+```
+## Assessment Suggestion: Case #17
+
+**Suggested decision: needs-ghidra** (ghidra score: 7, angr score: 0, confirmed score: 0)
+
+**Signals detected:**
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| process_injection | +3 | Process injection APIs (VirtualAlloc, CreateRemoteThread) |
+| no_strings        | +2 | No extractable strings (obfuscated binary) |
+| low_level_alloc   | +1 | Low-level memory allocation APIs |
+| correlation_found | +1 | Correlation with other cases — possible campaign |
+
+**Reasoning:** 4 signal(s) detected. Automated triage found obfuscation or evasion
+signals that prevent IOC recovery from static analysis alone. Manual Ghidra
+decompilation is required to understand the payload.
+
+_Run `assess_case` with `decision: needs-ghidra` to record this decision._
+```
+
+---
+
+## Workflow G — Record analyst assessment decision
+
+Use after reviewing enrichment notes and the `suggest_assessment` output to record
+the analyst's final decision. Applies a colour-coded custom tag, updates case status,
+and writes a timestamped audit note.
+
+### Run
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "assess_case",
+    "payload": {
+      "decision": "needs-ghidra",
+      "rationale": "Process injection APIs and high entropy — IOCs not recoverable from static analysis."
+    }
+  }'
+```
+
+### Decisions
+
+| `decision` | Custom tag | Case status | Next step |
+|------------|-----------|-------------|-----------|
+| `confirmed` | confirmed (green) | Approved | Push IOCs to MISP |
+| `needs-ghidra` | needs-ghidra (orange) | Request Review | Open binary in Ghidra |
+| `needs-angr` | needs-angr (red) | Request Review | Run angr symbolic execution |
+| `false-positive` | false-positive (grey) | Rejected | No further action |
+
+Running `assess_case` again replaces the previous tag — only one assessment tag is active at a time.
+
+### Response
+
+```json
+{
+  "case_id": 17,
+  "decision": "needs-ghidra",
+  "label": "Needs Ghidra",
+  "tag": "needs-ghidra",
+  "status_id": 9,
+  "rationale": "Process injection APIs and high entropy..."
+}
+```
+
+### Note written to case
+
+```
+## Assessment: Case #17
+
+**ESCALATED → Ghidra — insufficient evidence from automated triage.**
+
+| Field    | Value                     |
+|----------|---------------------------|
+| Decision | Needs Ghidra              |
+| Analyst  | wahyu@combine.id          |
+| Time     | 2026-09-06 00:15          |
+
+**Rationale:**
+> Process injection APIs and high entropy — IOCs not recoverable from static analysis.
+
+_Next step: open binary in Ghidra for deep decompilation and flow analysis._
+```
+
+---
+
+## Workflow H — Open a case from Mattermost
 
 Use when an incident is reported in Mattermost and you want to open a Flowintel case
 without leaving the chat.
@@ -452,7 +584,7 @@ MATTERMOST_SLASH_TOKEN = "<token-from-mattermost-slash-command>"  # optional
 
 ---
 
-## Workflow G — Notify a user via Mattermost from Flowintel
+## Workflow I — Notify a user via Mattermost from Flowintel
 
 Use when you want to alert a team member about a task inside Flowintel.
 

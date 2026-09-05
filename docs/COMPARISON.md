@@ -198,6 +198,8 @@ Incoming binary
 │  IP     → RDAP + RIPE Stat ASN                          │
 │  URL    → Lookyloo redirect chain + screenshot          │
 │  Hash   → CIRCL hashlookup + TLSH/ssdeep corpus        │
+│                                                         │
+│  ⚠️ Per-observable signals appended to each note        │
 └──────────────────────┬──────────────────────────────────┘
                        │  IPs, hashes, ASNs now in case Notes
                        ▼
@@ -208,6 +210,27 @@ Incoming binary
 │  Scan Notes of all other cases for matching values      │
 │  Create case links for overlapping cases                │
 │  Write correlation summary to case Notes                │
+└──────────────────────┬──────────────────────────────────┘
+                       │  all enrichment + correlation notes in place
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  suggest_assessment  (automated, seconds)               │
+│                                                         │
+│  Score 16 rules across case Notes:                      │
+│    entropy, injection APIs, KNOWN MALICIOUS,            │
+│    packer sections, vuln keywords, CVEs, ...            │
+│  Output: scored table + reasoning + next-step hint      │
+└──────────────────────┬──────────────────────────────────┘
+                       │  analyst reads suggestion + notes
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  assess_case  (analyst records decision, seconds)       │
+│                                                         │
+│  confirmed      → Approved + custom tag (green)         │
+│  needs-ghidra   → Request Review + tag (orange)         │
+│  needs-angr     → Request Review + tag (red)            │
+│  false-positive → Rejected + tag (grey)                 │
+│  Writes timestamped audit note with rationale           │
 └──────────────────────┬──────────────────────────────────┘
                        │
             ┌──────────┴──────────┐
@@ -237,9 +260,11 @@ Incoming binary
 | **Reverify** | *What is this file, and what does it contain?* | Seconds | Unknown file, no prior knowledge |
 | **enrich_observable** | *Are these IOCs known? What do they resolve to?* | Seconds | IOCs from triage or supplied directly |
 | **correlate_observables** | *Have we seen these observables before, in other cases?* | Seconds | Enriched case Notes |
+| **suggest_assessment** | *What does the evidence suggest the analyst should do?* | Seconds | All enrichment + correlation notes in place |
+| **assess_case** | *What is the analyst's final decision on this case?* | Seconds | After reviewing suggest_assessment output |
 | **YARA** | *How many other files match this pattern?* | Sub-second | Known IOCs or generated rule |
-| **Ghidra** | *What does this binary do?* | Hours | Reverify flagged it as suspicious |
-| **angr** | *Can this binary be exploited, and how?* | Hours – days | Ghidra confirmed a vulnerability |
+| **Ghidra** | *What does this binary do?* | Hours | assess_case decision: needs-ghidra |
+| **angr** | *Can this binary be exploited, and how?* | Hours – days | assess_case decision: needs-angr |
 
 ---
 
@@ -247,9 +272,13 @@ Incoming binary
 
 > Use **Reverify** to triage an unknown file and generate structured evidence — hashes, IOCs, a YARA rule — in seconds.
 >
-> Use **enrich_observable** to look up every IOC from triage against open sources — reputation, passive DNS, redirect chains, fuzzy matches — without leaving Flowintel.
+> Use **enrich_observable** to look up every IOC from triage against open sources — reputation, passive DNS, redirect chains, fuzzy matches — without leaving Flowintel. Per-observable signals are appended to each note immediately.
 >
 > Use **correlate_observables** to find other cases in this instance that share the same infrastructure — linking cases that belong to the same campaign.
+>
+> Use **suggest_assessment** to get a scored, rule-based recommendation before committing to a decision — 16 signals across entropy, injection APIs, known-malicious hashes, vulnerability keywords, and correlation hits.
+>
+> Use **assess_case** to record the analyst's final decision, apply a colour-coded custom tag, update case status, and write an audit trail.
 >
 > Use **YARA** to hunt for variants across a file collection using the rule Reverify produced.
 >

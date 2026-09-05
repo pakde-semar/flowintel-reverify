@@ -18,7 +18,7 @@ Every finding is grounded in raw bytes. Every step produces evidence an analyst 
 
 ## What it does
 
-Three modules share the same Flowintel case as their container:
+Five modules share the same Flowintel case as their container:
 
 ```
 ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
@@ -31,14 +31,35 @@ Three modules share the same Flowintel case as their container:
 │  Stage 3 — MISP push │  │          lookup +    │  │  Scan all other case │
 │    + Mattermost      │  │          TLSH/ssdeep │  │  Notes for matches   │
 │                      │  │                      │  │                      │
-│                      │  │  No API key required │  │  Create case links   │
-│                      │  │  Results → Notes     │  │  Write corr. note    │
+│                      │  │  Signals appended to │  │  Create case links   │
+│                      │  │  each enrichment note│  │  Write corr. note    │
 └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
           │                          │                          │
           └──────────────────────────┴──────────────────────────┘
                                      ▼
                             FLOWINTEL CASE
                      (Notes · MISP tab · Tasks · Links)
+                                     │
+          ┌──────────────────────────┴──────────────────────────┐
+          ▼                                                      ▼
+┌──────────────────────┐                            ┌──────────────────────┐
+│  suggest_assessment  │ ──── recommendation ─────► │  assess_case         │
+│                      │                            │                      │
+│  Scan all Notes for  │                            │  Record analyst      │
+│  16 scored signals   │                            │  decision, apply     │
+│  (entropy, injection │                            │  custom tag, update  │
+│  APIs, KNOWN MAL,    │                            │  case status, write  │
+│  vuln keywords, ...)  │                            │  audit note          │
+│                      │                            │                      │
+│  Output: scored      │                            │  confirmed →         │
+│  suggestion + table  │                            │    Approved + MISP   │
+│  of triggered rules  │                            │  needs-ghidra →      │
+│                      │                            │    Request Review    │
+│                      │                            │  needs-angr →        │
+│                      │                            │    Request Review    │
+│                      │                            │  false-positive →    │
+│                      │                            │    Rejected          │
+└──────────────────────┘                            └──────────────────────┘
 ```
 
 ---
@@ -165,6 +186,25 @@ CIRCL hashlookup: KNOWN MALICIOUS ⚠️ (source: malshare.com)
 If the hash is not found in public databases (novel or private malware), TLSH and ssdeep
 fuzzy-match the file against every other file in the local Flowintel uploads corpus to detect
 structural variants — even across recompiled samples.
+
+### Per-enrichment signals
+
+Every `enrich_observable` run appends an **Assessment signals** footer to the enrichment note,
+giving the analyst an immediate signal without waiting for a separate assessment step:
+
+```
+---
+**Assessment signals from this enrichment:**
+- ⚠️ `needs-ghidra` — KNOWN MALICIOUS in CIRCL hashlookup (source: malshare)
+  — automated triage cannot determine behavior; Ghidra required
+```
+
+| Observable | Signal conditions |
+|------------|------------------|
+| Hash | `KnownMalicious` set → needs-ghidra; trust ≥ 95 (NSRL) → confirmed; trust < 70 → needs-ghidra; fuzzy match found but not in public DB → needs-ghidra |
+| Domain | Registered < 30 days → needs-ghidra; registered < 90 days → needs-ghidra; no PDNS history → needs-ghidra |
+| IP | No ASN data → needs-ghidra |
+| URL | Redirect chain > 3 hops → needs-ghidra; capture error → manual review |
 
 ### Local correlation
 
@@ -391,6 +431,31 @@ curl ... -d '{
 }'
 ```
 
+### Run assessment suggestion via API
+
+```bash
+# Scans all case Notes, scores 16 signals, outputs recommendation
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"module": "suggest_assessment", "payload": {}}'
+```
+
+### Record analyst decision via API
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "assess_case",
+    "payload": {
+      "decision": "needs-ghidra",
+      "rationale": "Hash matched KnownMalicious; process injection APIs found. IOCs not recoverable from static analysis."
+    }
+  }'
+```
+
 ---
 
 ## Payload options
@@ -422,6 +487,17 @@ curl ... -d '{
 | `types` | list | `["ip","hash","asn"]` | Types to auto-extract when `observables` not given |
 | `create_links` | boolean | `true` | Create Flowintel case links for matching cases |
 | `min_overlap` | integer | `1` | Minimum shared observables to include a case in results |
+
+### suggest_assessment
+
+No payload required. Reads the current case Notes and scores against 16 built-in rules.
+
+### assess_case
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `decision` | `"confirmed"` \| `"needs-ghidra"` \| `"needs-angr"` \| `"false-positive"` | — | Analyst decision |
+| `rationale` | string | — | Optional explanation written to the audit note |
 
 ### Depth options (reverify_binary)
 

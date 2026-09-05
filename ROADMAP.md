@@ -111,22 +111,29 @@
 | URL | Redirect chain, screenshot | Lookyloo (CIRCL public) |
 | Hash | CIRCL hashlookup (KnownMalicious) + local corpus fuzzy match | TLSH, ssdeep |
 
+Per-observable **assessment signals** appended to each enrichment note (KnownMalicious, domain age,
+no PDNS, long redirect chain, fuzzy-only match, etc.).
+
 ### Local correlation (`correlate_observables`)
 - Auto-extracts IPs, hashes, ASNs from current case Notes
 - Scans Notes of all other cases for matching values
 - Creates `Case_Link_Case` records for matching cases
 - Writes correlation summary to case Notes
 
+### Assessment gate (`suggest_assessment` + `assess_case`)
+- `suggest_assessment`: scans all case Notes, scores 16 rules (entropy, injection APIs, KNOWN MALICIOUS,
+  vuln keywords, correlation hits), outputs scored recommendation table with reasoning
+- `assess_case`: records analyst decision (confirmed / needs-ghidra / needs-angr / false-positive),
+  applies custom tag (colour-coded), updates case status, writes timestamped audit note
+- Custom tags auto-created on first use; previous assessment tag replaced on decision change
+
 ---
 
 ## In progress / next
 
-### Analyst assessment gate
+### MISP push from assessment gate
 
-Two paths after findings are reviewed:
-
-- **Confirmed / high-confidence** → approved IOC → MISP
-- **Insufficient** → escalate to Ghidra (deep manual analysis) → angr (proof of exploitability) → approved IOC → MISP
+Automated MISP push when `assess_case` decision is `confirmed` — currently requires manual push via `reverify_binary`.
 
 ### MISP correlation → mitigation
 
