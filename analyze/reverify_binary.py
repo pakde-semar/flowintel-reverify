@@ -183,7 +183,7 @@ def _get_misp_credentials(db_session):
         return None, None
 
 
-def _push_to_misp(binary_path, display_name, findings, depth, case, db_session):
+def _push_to_misp(binary_path, display_name, findings, depth, case, db_session, case_model=None):
     """
     Build MISP objects from reverify findings and push to MISP.
     Returns (misp_event_url, error_message).
@@ -306,9 +306,75 @@ def _push_to_misp(binary_path, display_name, findings, depth, case, db_session):
             return None, str(result["errors"])
         event_id = result.get("Event", {}).get("id") if isinstance(result, dict) else None
         misp_url = f"{url}/events/view/{event_id}" if event_id else url
-        return misp_url, None
     except Exception as exc:
         return None, f"MISP push error: {exc}"
+
+    # ── Sync objects & attributes back into Flowintel case MISP tab ──────────
+    if event_id and case_model and db_session:
+        try:
+            _sync_misp_event_to_case(
+                misp=misp,
+                event_id=event_id,
+                case=case,
+                case_model=case_model,
+                db_session=db_session,
+                instance_url=url,
+            )
+        except Exception as exc:
+            logger.warning("MISP→Flowintel sync failed (event still created): %s", exc)
+
+    return misp_url, None
+
+
+def _sync_misp_event_to_case(misp, event_id, case, case_model, db_session, instance_url):
+    """Re-fetch created MISP event and write its objects/attributes into Flowintel's DB."""
+    from app.utils import misp_object_helper
+    from app.db_class.db import (
+        Connector_Instance, Misp_Attribute, Misp_Attribute_Instance_Uuid
+    )
+
+    fetched = misp.get_event(event_id, pythonify=True)
+    if not fetched or hasattr(fetched, "errors"):
+        return
+
+    inst = Connector_Instance.query.filter_by(url=instance_url).first()
+    instance_id = inst.id if inst else 1
+    case_id = case.get("id") if isinstance(case, dict) else case.id
+
+    # Objects
+    object_uuid_list = {}
+    for obj in getattr(fetched, "objects", []):
+        loc = misp_object_helper.create_misp_object(case_id, obj)
+        object_uuid_list.update(loc)
+
+    if object_uuid_list:
+        case_model.result_misp_object_module(
+            object_uuid_list, instance_id=instance_id, case_id=case_id
+        )
+
+    # Standalone attributes (event-level, not inside an object)
+    standalone_attr_uuid_list = []
+    for ev_attr in getattr(fetched, "attributes", []):
+        if ev_attr.object_id and int(ev_attr.object_id) != 0:
+            continue
+        sa = Misp_Attribute(
+            case_misp_object_id=None,
+            case_id=case_id,
+            value=str(ev_attr.value),
+            type=ev_attr.type,
+            object_relation="",
+            comment=ev_attr.comment or "",
+            ids_flag=ev_attr.to_ids or False,
+            disable_correlation=getattr(ev_attr, "disable_correlation", False) or False,
+        )
+        db_session.session.add(sa)
+        db_session.session.commit()
+        standalone_attr_uuid_list.append({"attribute_id": sa.id, "uuid": ev_attr.uuid})
+
+    if standalone_attr_uuid_list:
+        case_model.result_standalone_attr_module(
+            standalone_attr_uuid_list, instance_id=instance_id, case_id=case_id
+        )
 
 
 def _mimetype_from_type(file_type: str, bits: str) -> str:
@@ -443,7 +509,7 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
     misp_error     = None
     if push_to_misp:
         misp_event_url, misp_error = _push_to_misp(
-            binary_path, display_name, findings, depth, case, db_session
+            binary_path, display_name, findings, depth, case, db_session, case_model
         )
         if misp_error:
             logger.warning("MISP push failed: %s", misp_error)
