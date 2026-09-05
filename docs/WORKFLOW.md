@@ -239,7 +239,7 @@ In any Mattermost channel, type:
 ✅ Case #16 created
 Title: Suspicious dropper from HR email
 Link: https://<flowintel>/case/16
-Opened via Mattermost by @wahyu
+Opened via Mattermost by @iwewe
 ```
 
 4. The user who sent the command gets a private ephemeral confirmation
