@@ -1,24 +1,145 @@
 #!/usr/bin/env bash
-# Install flowintel-reverify module into a running Flowintel instance
+# flowintel-reverify installer
+# Installs the reverify_binary analyze module, web UI blueprint, and sidebar link
+# into a running Flowintel instance.
+#
+# Usage:
+#   FLOWINTEL_DIR=/opt/flowintel bash install.sh
+#
+# Options (env vars):
+#   FLOWINTEL_DIR   Path to Flowintel root          (default: /opt/flowintel)
+#   FLOWINTEL_VENV  Path to Flowintel Python venv   (default: $FLOWINTEL_DIR/env)
+#   SKIP_PATCH      Set to 1 to skip case_api patch (default: 0)
+#   SKIP_REVERIFY   Set to 1 to skip reverify pip install (default: 0)
+
 set -euo pipefail
 
+# ── Config ───────────────────────────────────────────────────────────────────
 FLOWINTEL_DIR="${FLOWINTEL_DIR:-/opt/flowintel}"
-MODULE_DIR="$FLOWINTEL_DIR/app/modules"
+FLOWINTEL_VENV="${FLOWINTEL_VENV:-$FLOWINTEL_DIR/env}"
+SKIP_PATCH="${SKIP_PATCH:-0}"
+SKIP_REVERIFY="${SKIP_REVERIFY:-0}"
 
-if [ ! -d "$MODULE_DIR" ]; then
-    echo "ERROR: Flowintel module directory not found: $MODULE_DIR"
-    echo "Set FLOWINTEL_DIR env var to your Flowintel installation path."
+APP_DIR="$FLOWINTEL_DIR/app"
+MODULE_DIR="$APP_DIR/modules/analyze"
+PLUGIN_DST="$APP_DIR/reverify_tool"
+TEMPLATE_DST="$APP_DIR/templates/reverify_tool"
+SIDEBAR="$APP_DIR/templates/sidebar.html"
+INIT_PY="$APP_DIR/__init__.py"
+CASE_API="$APP_DIR/case/case_api.py"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+ok()   { echo -e "${GREEN}  ✓${NC} $*"; }
+warn() { echo -e "${YELLOW}  !${NC} $*"; }
+err()  { echo -e "${RED}  ✗${NC} $*"; }
+
+# ── Preflight ─────────────────────────────────────────────────────────────────
+echo ""
+echo "flowintel-reverify installer"
+echo "============================"
+echo "Flowintel dir : $FLOWINTEL_DIR"
+echo "Venv          : $FLOWINTEL_VENV"
+echo ""
+
+if [ ! -d "$APP_DIR" ]; then
+    err "Flowintel app directory not found: $APP_DIR"
+    echo "    Set FLOWINTEL_DIR to your Flowintel installation path."
     exit 1
 fi
 
-echo "Installing reverify_binary module to $MODULE_DIR/analyze/"
-mkdir -p "$MODULE_DIR/analyze"
-cp analyze/reverify_binary.py "$MODULE_DIR/analyze/"
-cp analyze/__init__.py "$MODULE_DIR/analyze/" 2>/dev/null || true
+if [ ! -f "$CASE_API" ]; then
+    err "case_api.py not found: $CASE_API"
+    exit 1
+fi
 
+# ── Step 1: Install reverify into Flowintel venv ──────────────────────────────
+if [ "$SKIP_REVERIFY" = "1" ]; then
+    warn "Skipping reverify installation (SKIP_REVERIFY=1)"
+else
+    echo "[1/5] Installing reverify into Flowintel venv..."
+    if [ ! -f "$FLOWINTEL_VENV/bin/pip" ]; then
+        err "Venv not found: $FLOWINTEL_VENV"
+        echo "    Set FLOWINTEL_VENV or ensure the venv exists."
+        exit 1
+    fi
+    "$FLOWINTEL_VENV/bin/pip" install --quiet reverify
+    ok "reverify installed"
+fi
+
+# ── Step 2: Install analyze module ────────────────────────────────────────────
+echo "[2/5] Installing reverify_binary module..."
+mkdir -p "$MODULE_DIR"
+cp analyze/reverify_binary.py "$MODULE_DIR/"
+# Create __init__.py if it doesn't exist
+[ -f "$MODULE_DIR/__init__.py" ] || touch "$MODULE_DIR/__init__.py"
+ok "Module installed: $MODULE_DIR/reverify_binary.py"
+
+# ── Step 3: Install web UI blueprint ─────────────────────────────────────────
+echo "[3/5] Installing reverify_tool blueprint..."
+mkdir -p "$PLUGIN_DST"
+mkdir -p "$TEMPLATE_DST"
+cp flowintel_plugin/reverify_tool/__init__.py "$PLUGIN_DST/"
+cp flowintel_plugin/reverify_tool/views.py    "$PLUGIN_DST/"
+cp flowintel_plugin/templates/reverify_tool/index.html    "$TEMPLATE_DST/"
+cp flowintel_plugin/templates/reverify_tool/push_misp.html "$TEMPLATE_DST/"
+ok "Blueprint installed: $PLUGIN_DST"
+
+# Register blueprint in __init__.py (idempotent)
+if grep -q "reverify_tool_blueprint" "$INIT_PY"; then
+    warn "Blueprint already registered in $INIT_PY — skipping"
+else
+    # Insert before the final 'return app'
+    sed -i "s/    return app/    from .reverify_tool import reverify_tool_blueprint\n    app.register_blueprint(reverify_tool_blueprint, url_prefix=\"\/reverify\")\n\n    return app/" "$INIT_PY"
+    ok "Blueprint registered in $INIT_PY"
+fi
+
+# ── Step 4: Patch sidebar ─────────────────────────────────────────────────────
+echo "[4/5] Patching sidebar..."
+if grep -q "reverify/push_misp" "$SIDEBAR"; then
+    warn "Sidebar already patched — skipping"
+else
+    # Insert sidebar links after the Analyser menu anchor
+    REVERIFY_LINKS='                <a class="collapse-item" href="\/reverify\/">\n\t\t\t\t\t<i class="fa-solid fa-fw me-2 fa-file-code"><\/i>\n\t\t\t\t\t<span>Reverify Binary<\/span>\n\t\t\t\t<\/a>\n\t\t\t\t<a class="collapse-item" href="\/reverify\/push_misp">\n\t\t\t\t\t<i class="fa-solid fa-fw me-2 fa-share-nodes"><\/i>\n\t\t\t\t\t<span>Push Case to MISP<\/span>\n\t\t\t\t<\/a>'
+    # Find the Analyser section and append after its closing </a>
+    if grep -q 'href="/connectors/"' "$SIDEBAR"; then
+        sed -i "s|<a class=\"collapse-item\" href=\"/connectors/\"|${REVERIFY_LINKS}\n\t\t\t\t<a class=\"collapse-item\" href=\"/connectors/\"|" "$SIDEBAR"
+        ok "Sidebar patched"
+    else
+        warn "Could not locate sidebar injection point — add links manually:"
+        echo '    <a class="collapse-item" href="/reverify/">'
+        echo '        <i class="fa-solid fa-fw me-2 fa-file-code"></i>'
+        echo '        <span>Reverify Binary</span>'
+        echo '    </a>'
+        echo '    <a class="collapse-item" href="/reverify/push_misp">'
+        echo '        <i class="fa-solid fa-fw me-2 fa-share-nodes"></i>'
+        echo '        <span>Push Case to MISP</span>'
+        echo '    </a>'
+    fi
+fi
+
+# ── Step 5: Patch case_api.py ─────────────────────────────────────────────────
+echo "[5/5] Patching case_api.py..."
+if [ "$SKIP_PATCH" = "1" ]; then
+    warn "Skipping case_api patch (SKIP_PATCH=1)"
+elif grep -q "run_analyze_module" "$CASE_API"; then
+    warn "case_api.py already patched — skipping"
+else
+    if patch --dry-run -p1 "$CASE_API" < patch/case_api_analyze_route.patch > /dev/null 2>&1; then
+        patch -p1 "$CASE_API" < patch/case_api_analyze_route.patch
+        ok "case_api.py patched"
+    else
+        warn "Patch does not apply cleanly — Flowintel version may differ."
+        warn "Apply manually: patch/case_api_analyze_route.patch"
+        warn "Or set SKIP_PATCH=1 and use the API endpoint another way."
+    fi
+fi
+
+# ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-echo "Done. Restart Flowintel to load the module:"
-echo "  systemctl restart flowintel"
+echo -e "${GREEN}Installation complete.${NC}"
 echo ""
-echo "Ensure reverify is installed and REVERIFY_VENV is set correctly."
-echo "Default: /opt/reverfy/venv/lib/python3.12/site-packages"
+echo "Next steps:"
+echo "  1. Restart Flowintel:  systemctl restart flowintel"
+echo "  2. Open: https://<your-flowintel>/reverify/"
+echo "  3. Ensure a MISP connector is configured under Flowintel → Connectors"
+echo ""

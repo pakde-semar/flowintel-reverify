@@ -1,6 +1,8 @@
---- /tmp/claude-1000/-home-bagong/b40c083f-ffa8-46a2-9a46-00671fdbd25a/scratchpad/case_api.py.bak	2026-09-05 12:57:44.128609757 +0700
-+++ /tmp/claude-1000/-home-bagong/b40c083f-ffa8-46a2-9a46-00671fdbd25a/scratchpad/case_api.py	2026-09-05 12:55:16.554614958 +0700
-@@ -699,7 +699,52 @@
+diff --git a/app/case/case_api.py b/app/case/case_api.py
+index 4ee7e400..4a34729b 100644
+--- a/app/case/case_api.py
++++ b/app/case/case_api.py
+@@ -699,7 +699,52 @@ class CallModuleCase(Resource):
                  return {"message": "Please enter a 'module''"}, 400
              return {"message": "Permission denied"}, 403
          return {"message": "Case doesn't exist"}, 404
