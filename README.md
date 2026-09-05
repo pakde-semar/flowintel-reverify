@@ -1,47 +1,118 @@
 # flowintel-reverify
 
-Flowintel module that brings [Reverify](https://github.com/2akouwu/reverify) binary analysis into case workflows.
+Flowintel module that brings [Reverify](https://github.com/2akouwu/reverify) binary analysis
+into case workflows — with automatic triage, structured findings, and
+[MISP](https://github.com/MISP/MISP) threat intelligence enrichment in a single step.
 
 **The AI proposes. The bytes decide.** — every claim about a binary is checked against the real bytes.
+
+---
 
 ## Documentation
 
 - **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage guide: upload, push to MISP, API automation, MISP object mapping
 - **[COMPARISON.md](docs/COMPARISON.md)** — Ghidra vs Reverify: feature comparison, when to use each, how they complement each other
 
+---
+
 ## What it does
+
+Upload a binary file → get a Flowintel case + MISP event, fully populated, in one click.
 
 When called on a Flowintel case, the `reverify_binary` module:
 
 1. Resolves the target binary (from payload or case object attributes)
-2. Analyzes it with Reverify's deterministic RE toolkit
-3. Returns structured findings back to the case:
-   - File type, architecture, bitness
-   - Sections, imports, exports
-   - MD5 / SHA1 / SHA256 hashes
-   - String extraction with offsets
-   - Entry-point disassembly (full mode)
-   - Suspicious string detection (full mode)
-4. Optionally pushes structured objects to a connected MISP instance
+2. Analyzes it with Reverify's deterministic RE toolkit — no LLM, no guessing
+3. Writes structured findings to the case **Notes** tab (Markdown)
+4. Optionally pushes findings to [MISP](https://github.com/MISP/MISP) as typed objects:
+   - Creates a MISP event with `file` / `pe` / `elf` / section objects
+   - Syncs all objects and attributes back into the case's **MISP tab** automatically
 
-## Use case
+### Findings extracted
+
+| Category | Details |
+|----------|---------|
+| Identity | File type, architecture, bitness |
+| Hashes | MD5, SHA1, SHA256 |
+| Structure | Sections, imports, exports |
+| Strings | All printable strings with offsets |
+| Disassembly | Entry-point disasm — first 20 instructions *(full mode)* |
+| Suspicious strings | URLs, IPs, domains, registry keys, patterns *(full mode)* |
+
+---
+
+## Triage workflow
 
 ```
-Flowintel Case (malware incident)
-  ├── Artifact: suspicious binary
-  └── [Module: reverify_binary (depth=full)]
-       ├── Type: Windows PE x86_64
-       ├── Imports: CreateRemoteThread, VirtualAlloc, WriteProcessMemory ...
-       ├── Suspicious strings: http://c2.evil.com, cmd.exe, base64
-       ├── Entry disasm: endbr64 / push rbp / ...
-       └── → Push findings to MISP as file/pe/pe-section objects
+Incoming binary
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│  Flowintel /reverify/  (automated, seconds)         │
+│                                                     │
+│  • File type + architecture + hashes                │
+│  • Sections, imports, exports                       │
+│  • String extraction + suspicious string scan       │
+│  • Entry-point disassembly (full mode)              │
+│                                                     │
+│  → Case Notes: Markdown summary                     │
+│  → MISP: structured objects + attributes            │
+│  → Flowintel MISP tab: synced automatically         │
+└─────────────────────────────────────────────────────┘
+      │
+      │  suspicious? escalate
+      ▼
+┌─────────────────────────────────────────────────────┐
+│  Ghidra / analyst  (manual, hours)                  │
+│                                                     │
+│  • Full disassembly + decompile to C pseudocode     │
+│  • Execution flow tracing                           │
+│  • Confirm and refine IOCs from Reverify            │
+└─────────────────────────────────────────────────────┘
 ```
+
+---
+
+## MISP integration
+
+When **Push to MISP** is enabled, the module:
+
+1. Creates a [MISP](https://github.com/MISP/MISP) event (`distribution: org only`, `threat level: medium`)
+2. Populates it with typed objects based on the binary format detected:
+
+| Binary type | MISP objects created |
+|-------------|---------------------|
+| Windows PE | `file` + `pe` + `pe-section` ×N |
+| Linux ELF | `file` + `elf` + `elf-section` ×N |
+| Mach-O | `file` |
+| Raw / script | `file` |
+
+3. Maps suspicious strings to MISP attribute types *(full mode)*:
+
+| String pattern | MISP attribute |
+|----------------|----------------|
+| `http://` / `https://` | `url` — Network activity |
+| IPv4 address | `ip-dst` — Network activity |
+| Domain name | `domain` — Network activity |
+| `HKEY_*` | `regkey` — Persistence mechanism |
+| Other | `pattern-in-file` — Payload delivery |
+
+4. Syncs all created objects and attributes back into the Flowintel case **MISP tab**
+   — no manual import step required
+
+MISP credentials are read automatically from the Flowintel database
+(`Connector_Instance` + `User_Connector_Instance`).
+
+---
 
 ## Requirements
 
 - [Flowintel](https://github.com/flowintel/flowintel) (running instance)
 - [Reverify](https://github.com/2akouwu/reverify) installed in the Flowintel venv
+- [MISP](https://github.com/MISP/MISP) instance connected to Flowintel *(for MISP push)*
 - Python 3.10+
+
+---
 
 ## Installation
 
@@ -62,12 +133,16 @@ If Reverify is installed in a non-default path, set the env var before starting 
 export REVERIFY_VENV=/path/to/reverify/venv/lib/python3.12/site-packages
 ```
 
+---
+
 ## Quick start
 
 ### Upload a new binary (web UI)
 
 Navigate to **Analyser → Reverify Binary** in the Flowintel sidebar.
 Fill in a case title, upload the binary, choose analysis depth, and optionally toggle **Push to MISP**.
+
+Any file type is accepted — format is detected from magic bytes, not the file extension.
 
 ### Push an existing case to MISP
 
@@ -93,6 +168,8 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 > The `run_analyze_module` route requires a patch to Flowintel's `case_api.py`.
 > The patch is included in this repo at `patch/case_api_analyze_route.patch`.
 
+---
+
 ## Payload options
 
 | Key | Type | Default | Description |
@@ -100,7 +177,9 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 | `file_path` | string | — | Absolute path to binary on the server |
 | `depth` | `"quick"` \| `"full"` | `"quick"` | Analysis depth |
 | `display_name` | string | basename of file_path | Original filename shown in notes and MISP |
-| `push_to_misp` | boolean | `false` | Create a MISP event from findings |
+| `push_to_misp` | boolean | `false` | Create a MISP event and sync back to case MISP tab |
+
+---
 
 ## Module response
 
@@ -129,12 +208,16 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 }
 ```
 
+---
+
 ## Test without Flowintel
 
 ```bash
 cd flowintel-reverify
 python tests/test_module.py /bin/ls full
 ```
+
+---
 
 ## License
 
