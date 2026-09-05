@@ -30,7 +30,7 @@
                     normalize + validate
                                │
                                ▼
-                         ENRICHMENT
+                    ENRICHMENT  [enrich_observable]
                                │
              ┌─────────────────┼─────────────────┐
              ▼                 ▼                 ▼
@@ -40,48 +40,58 @@
           ASN/PDNS          redirects       TLSH/ssdeep
              │                 │                 │
              └─────────────────┼─────────────────┘
-                               ▼
-                         RELATIONSHIPS
                                │
+                  ⚠️  per-observable signals
+                      appended to each note
+                               │
+                               ▼
+                    RELATIONSHIPS  [correlate_observables]
+                               │
+                    cross-case scan + case links
                     shared IPs, ASNs, hashes
                                │
                                ▼
-                       LOCAL CORRELATION
+                ASSESSMENT SUGGESTION  [suggest_assessment]
                                │
-                    cross-case scan + case links
+                    score 16 rules across Notes:
+                    entropy · injection APIs ·
+                    KNOWN MALICIOUS · vuln keywords
+                    → scored table + reasoning
                                │
                                ▼
-                       ANALYST ASSESSMENT
+                  ANALYST DECISION  [assess_case]
                                │
-                   ┌───────────┴───────────┐
-                   ▼                       ▼
-              insufficient              confirmed/
-                   │                   high-confidence
-                   ▼                       │
-                GHIDRA                     │
-                   │                       │
-              need proof?                  │
-                   │                       │
-                   ▼                       │
-                  angr                     │
-                   │                       │
-                   └──────────┬────────────┘
-                              ▼
-                       APPROVED IOC
-                              │
-                              ▼
-                             MISP
-                              │
-                         correlation
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-                  case               campaign
-                    │                   │
-                    └──────────┬────────┘
-                               ▼
-                         mitigation /
-                           advisory
+          ┌────────────┬────────┴────────┬────────────┐
+          ▼            ▼                 ▼            ▼
+      confirmed   needs-ghidra      needs-angr  false-positive
+          │            │                 │            │
+       Approved    Req. Review       Req. Review   Rejected
+       tag: ✓      tag: 🔍           tag: 🐛       tag: ✗
+          │            │                 │
+          │          GHIDRA            angr
+          │       deep manual      symbolic exec
+          │       decompile +      constraint solve
+          │       flow analysis    exploit / PoC
+          │            │                 │
+          │            └────────┬────────┘
+          │                     │
+          └─────────────┬───────┘
+                        ▼
+                   APPROVED IOC
+                        │
+                        ▼
+                       MISP
+                        │
+                    correlation
+                        │
+               ┌────────┴────────┐
+               ▼                 ▼
+             case            campaign
+               │                 │
+               └────────┬────────┘
+                        ▼
+                  mitigation /
+                    advisory
 ```
 
 ---
