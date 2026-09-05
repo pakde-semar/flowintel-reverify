@@ -2,7 +2,7 @@ import requests
 import conf.config_module as Config
 
 module_config = {
-    "case_task": "case"
+    "case_task": "task"
 }
 
 
