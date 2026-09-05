@@ -76,9 +76,6 @@ def analyze():
         flash("Failed to create case.", "danger")
         return redirect(url_for("reverify_tool.index"))
 
-    # add current user to case
-    CommonModel.add_user_case(case, current_user, current_user)
-
     # ── 2. Save uploaded file ─────────────────────────────────────────────────
     os.makedirs(FILE_FOLDER, exist_ok=True)
     file_uuid = str(uuid.uuid4())
