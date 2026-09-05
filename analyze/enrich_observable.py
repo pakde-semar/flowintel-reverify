@@ -612,13 +612,139 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
     else:
         return {"message": f"Unsupported type: {obs_type}. Use 'domain', 'ip', 'url', or 'hash'."}
 
+    signals = _build_enrich_signals(obs_type, result)
+    if signals:
+        note = note.rstrip() + "\n\n" + _format_signals_footer(signals)
+
     _write_note(case, note, db_session)
 
     return {
         "type"   : obs_type,
         "value"  : value,
         "result" : result,
+        "signals": signals,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-enrichment signal detection (Opsi 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_enrich_signals(obs_type: str, result: dict) -> list:
+    """
+    Return list of {emoji, suggestion, reason} dicts based on enrichment result.
+    Called after each individual enrichment to give the analyst an immediate signal.
+    """
+    signals = []
+
+    if obs_type == "hash":
+        hl = result.get("hashlookup", {})
+        if hl.get("found") and hl.get("data"):
+            d = hl["data"]
+            km = d.get("known_malicious", "")
+            trust = d.get("trust")
+            if km:
+                signals.append({
+                    "emoji"     : "⚠️",
+                    "suggestion": "needs-ghidra",
+                    "reason"    : f"KNOWN MALICIOUS in CIRCL hashlookup (source: {km}) — "
+                                  "automated triage cannot determine behavior; Ghidra required",
+                })
+            elif trust is not None and trust >= 95:
+                signals.append({
+                    "emoji"     : "✓",
+                    "suggestion": "confirmed",
+                    "reason"    : f"Hash known clean in CIRCL hashlookup (trust: {trust}/100, "
+                                  f"db: {d.get('db', '?')}) — likely benign",
+                })
+            elif trust is not None and trust < 70:
+                signals.append({
+                    "emoji"     : "⚠️",
+                    "suggestion": "needs-ghidra",
+                    "reason"    : f"Low hashlookup trust score ({trust}/100) — ambiguous reputation, "
+                                  "consider manual analysis",
+                })
+        elif not hl.get("found"):
+            tlsh_matches = result.get("tlsh", {}).get("matches", [])
+            ssdeep_matches = result.get("ssdeep", {}).get("matches", [])
+            if tlsh_matches or ssdeep_matches:
+                signals.append({
+                    "emoji"     : "⚠️",
+                    "suggestion": "needs-ghidra",
+                    "reason"    : "Hash not in public databases but fuzzy matches found in local corpus — "
+                                  "possible novel variant or recompiled sample",
+                })
+
+    elif obs_type == "domain":
+        rdap = result.get("rdap", {})
+        registered_str = rdap.get("registered", "")
+        if registered_str:
+            try:
+                reg_date = _dt.datetime.fromisoformat(registered_str[:10])
+                age_days = (_dt.datetime.now() - reg_date).days
+                if age_days < 30:
+                    signals.append({
+                        "emoji"     : "⚠️",
+                        "suggestion": "needs-ghidra",
+                        "reason"    : f"Domain registered only {age_days} day(s) ago ({registered_str[:10]}) — "
+                                      "very new domain, high risk of DGA or throwaway C2",
+                    })
+                elif age_days < 90:
+                    signals.append({
+                        "emoji"     : "⚠️",
+                        "suggestion": "needs-ghidra",
+                        "reason"    : f"Domain registered {age_days} day(s) ago ({registered_str[:10]}) — "
+                                      "recently registered domain",
+                    })
+            except Exception:
+                pass
+        pdns = result.get("passive_dns", [])
+        if not pdns:
+            signals.append({
+                "emoji"     : "⚠️",
+                "suggestion": "needs-ghidra",
+                "reason"    : "No passive DNS history found — domain has not been seen in CIRCL PDNS; "
+                              "possibly new, private, or inactive",
+            })
+
+    elif obs_type == "ip":
+        asn = result.get("asn", {})
+        if not asn.get("asns") and "error" not in asn:
+            signals.append({
+                "emoji"     : "⚠️",
+                "suggestion": "needs-ghidra",
+                "reason"    : "No ASN/routing information found for this IP — "
+                              "possibly unrouted, bogon, or sink-holed",
+            })
+
+    elif obs_type == "url":
+        redirects = result.get("redirects", [])
+        if len(redirects) > 3:
+            signals.append({
+                "emoji"     : "⚠️",
+                "suggestion": "needs-ghidra",
+                "reason"    : f"Long redirect chain ({len(redirects)} hops) — "
+                              "may indicate cloaking, traffic distribution system, or evasion",
+            })
+        if result.get("error"):
+            signals.append({
+                "emoji"     : "ℹ️",
+                "suggestion": None,
+                "reason"    : f"Lookyloo capture failed: {result['error']} — "
+                              "manual URL inspection recommended",
+            })
+
+    return signals
+
+
+def _format_signals_footer(signals: list) -> str:
+    if not signals:
+        return ""
+    lines = ["---", "**Assessment signals from this enrichment:**"]
+    for s in signals:
+        suggestion_tag = f"`{s['suggestion']}`" if s["suggestion"] else "manual review"
+        lines.append(f"- {s['emoji']} {suggestion_tag} — {s['reason']}")
+    return "\n".join(lines) + "\n"
 
 
 def introspection():
