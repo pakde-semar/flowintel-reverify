@@ -8,7 +8,7 @@ No API key required for any source.
   Domain → RDAP registration data + CIRCL passive DNS
   IP     → RDAP network info + RIPE Stat ASN/prefix
   URL    → Lookyloo (CIRCL public instance): redirect chain, IPs contacted, screenshot link
-  Hash   → TLSH + ssdeep fuzzy match against local Flowintel uploads corpus
+  Hash   → CIRCL hashlookup reputation (KnownMalicious, NSRL, file metadata) + TLSH/ssdeep fuzzy match against local corpus
 
 Payload:
   type         : "domain" | "ip" | "url" | "hash"  (auto-detected if omitted)
@@ -35,9 +35,12 @@ module_config = {
         "Enrich a domain, IP, URL, or hash observable against open sources (no API key required). "
         "Domain/IP: RDAP + CIRCL passive DNS + RIPE Stat ASN. "
         "URL: Lookyloo (CIRCL public) — redirect chain, IPs contacted, screenshot link. "
-        "Hash: TLSH + ssdeep fuzzy match against local upload corpus."
+        "Hash: CIRCL hashlookup reputation (KnownMalicious, NSRL, file metadata) + "
+        "TLSH + ssdeep fuzzy match against local upload corpus."
     ),
 }
+
+_HASHLOOKUP_BASE = "https://hashlookup.circl.lu/lookup"
 
 _DEFAULT_CORPUS   = "/opt/flowintel/uploads/files"
 _DEFAULT_LOOKYLOO = "https://lookyloo.circl.lu"
@@ -298,20 +301,65 @@ def _enrich_ip(ip: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Hash enrichment — fuzzy match against local corpus
+# Hash enrichment — MalwareBazaar + fuzzy match against local corpus
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _lookup_hashlookup(hash_value: str) -> dict:
+    """Query CIRCL hashlookup — free, no API key needed.
+    Returns file metadata + KnownMalicious flag if hash is known."""
+    result = {"found": False, "data": None, "error": None}
+    hv = hash_value.lower()
+    if len(hv) == 32:
+        algo = "md5"
+    elif len(hv) == 40:
+        algo = "sha1"
+    elif len(hv) == 64:
+        algo = "sha256"
+    else:
+        result["error"] = f"Unsupported hash length: {len(hv)}"
+        return result
+    try:
+        r = requests.get(f"{_HASHLOOKUP_BASE}/{algo}/{hash_value}", timeout=_TIMEOUT)
+        if r.status_code == 404:
+            return result  # not found, no error
+        if r.status_code != 200:
+            result["error"] = f"HTTP {r.status_code}"
+            return result
+        entry = r.json()
+        result["found"] = True
+        result["data"] = {
+            "sha256"        : entry.get("SHA-256", ""),
+            "sha1"          : entry.get("SHA-1", ""),
+            "md5"           : entry.get("MD5", ""),
+            "file_name"     : entry.get("FileName", ""),
+            "file_size"     : entry.get("FileSize", ""),
+            "mimetype"      : entry.get("mimetype", ""),
+            "known_malicious": entry.get("KnownMalicious") or "",
+            "trust"         : entry.get("hashlookup:trust"),
+            "db"            : entry.get("db", ""),
+            "tlsh"          : entry.get("TLSH", ""),
+            "ssdeep"        : entry.get("SSDEEP", ""),
+        }
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
 
 def _enrich_hash(hash_value: str, corpus_path: str) -> dict:
     result = {
-        "hash"  : hash_value,
-        "tlsh"  : {"matches": [], "error": None},
-        "ssdeep": {"matches": [], "error": None},
+        "hash"       : hash_value,
+        "hashlookup" : {},
+        "tlsh"       : {"matches": [], "error": None},
+        "ssdeep"     : {"matches": [], "error": None},
     }
 
-    # Find the file in the corpus that matches the exact hash
+    # 1. CIRCL hashlookup reputation (no local file needed)
+    result["hashlookup"] = _lookup_hashlookup(hash_value)
+
+    # 2. Find file in local corpus for fuzzy matching
     target_path = _find_file_by_hash(hash_value, corpus_path)
     if not target_path:
-        result["error"] = f"File with hash {hash_value} not found in corpus {corpus_path}"
+        result["corpus_note"] = f"File not found in local corpus — fuzzy matching skipped"
         return result
 
     raw = open(target_path, "rb").read()
@@ -464,14 +512,42 @@ def _format_ip_note(r: dict) -> str:
 
 
 def _format_hash_note(r: dict) -> str:
-    lines = [f"## Enrichment: `{r['hash']}` (hash — fuzzy match)", ""]
-    if r.get("error"):
-        lines.append(f"_{r['error']}_")
+    lines = [f"## Enrichment: `{r['hash']}` (hash)", ""]
+
+    # CIRCL hashlookup
+    hl = r.get("hashlookup", {})
+    if hl.get("error"):
+        lines += [f"**CIRCL hashlookup:** error — {hl['error']}", ""]
+    elif hl.get("found") and hl.get("data"):
+        d = hl["data"]
+        known_malicious = d.get("known_malicious", "")
+        if known_malicious:
+            lines += [f"**CIRCL hashlookup:** KNOWN MALICIOUS ⚠️ (source: {known_malicious})", ""]
+        else:
+            trust = d.get("trust")
+            trust_str = f", trust: {trust}/100" if trust is not None else ""
+            lines += [f"**CIRCL hashlookup:** found in {d.get('db', 'unknown db')}{trust_str}", ""]
+        if d.get("file_name"):
+            lines.append(f"- **File name:** `{d['file_name']}`")
+        if d.get("file_size"):
+            lines.append(f"- **File size:** {d['file_size']} bytes")
+        if d.get("mimetype"):
+            lines.append(f"- **MIME type:** {d['mimetype']}")
+        if d.get("sha256"):
+            lines.append(f"- **SHA256:** `{d['sha256']}`")
+        if d.get("tlsh"):
+            lines.append(f"- **TLSH (hashlookup):** `{d['tlsh']}`")
+        lines.append("")
+    else:
+        lines += ["**CIRCL hashlookup:** not found in database", ""]
+
+    if r.get("corpus_note"):
+        lines += [f"_{r['corpus_note']}_", ""]
         return "\n".join(lines)
 
     tlsh = r.get("tlsh", {})
     if tlsh.get("hash"):
-        lines.append(f"**TLSH:** `{tlsh['hash']}`")
+        lines.append(f"**TLSH (local corpus):** `{tlsh['hash']}`")
     if tlsh.get("matches"):
         lines.append("**TLSH matches (score ≤ 200, lower = more similar):**")
         for m in tlsh["matches"][:5]:
