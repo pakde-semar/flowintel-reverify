@@ -1,0 +1,265 @@
+
+<ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+
+	<!-- Sidebar - Brand -->
+	<a class="sidebar-brand d-flex align-items-center justify-content-center" " id="home_link" href="/">
+		<div class="custom-sidebar-header">
+			<img src="{{ config.MAIN_LOGO }}" alt="{{ config.APP_NAME }} Logo"
+			loading="lazy" />
+		</div>
+	</a>
+
+
+	<!-- Divider -->
+	<hr class="sidebar-divider">
+
+	<!-- Nav Item - Pages Collapse Menu -->
+
+	<li class="nav-item">
+		<a class="nav-link" href="/case/">
+			<i class="fas fa-fw fa-folder-open"></i>
+			<span>Cases</span>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a class="nav-link" href="/my_assignment/">
+			<i class="fas fa-fw fa-list-check"></i>
+			<span>Tasks assigned</span>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a class="nav-link" href="/calendar/">
+			<i class="fas fa-fw fa-calendar-days"></i>
+			<span>Calendar</span>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a class="nav-link" href="/alerting">
+			<i class="fas fa-fw fa-triangle-exclamation"></i>
+			<span>Alert triage</span>
+			<span id="alerting-badge" class="badge bg-danger ms-1" style="display:none;">0</span>
+			<i class="fa-solid fa-circle-question ms-1" data-bs-toggle="tooltip" data-bs-placement="right" title="Review external alerts from SIEM, AIL, Wazuh, and other connector sources." style="font-size:0.75rem; opacity:0.6;"></i>
+		</a>
+	</li>
+	<li class="nav-item">
+		<a class="nav-link collapsed" href="#" data-bs-toggle="collapse" role="button" data-bs-target="#collapseTemplateSidebar"
+			aria-expanded="false" aria-controls="collapseTemplateSidebar">
+			<i class="fas fa-fw fa-book-bookmark"></i>
+			<span>Templates</span>
+		</a>
+		<div id="collapseTemplateSidebar" class="collapse" data-bs-parent="#accordionSidebar">
+			<div class="py-2 collapse-inner rounded">
+				<a class="collapse-item" href="/templating/cases"><i class="fa-solid fa-folder-open fa-fw me-2"></i>Cases</a>
+				<a class="collapse-item" href="/templating/tasks"><i class="fa-solid fa-list-check fa-fw me-2"></i>Tasks</a>
+				<a class="collapse-item" href="/tools/note_template_index"><i class="fa-solid fa-note-sticky fa-fw me-2"></i>Notes</a>
+				{% if current_user.is_admin() or current_user.is_template_editor() %}
+				<a class="collapse-item" href="/templating/repositories"><i class="fa-solid fa-code-branch fa-fw me-2"></i>Repositories</a>
+				{% endif %}
+			</div>
+		</div>
+	</li>
+
+	<!-- Divider -->
+	<hr class="sidebar-divider">
+
+	<li class="nav-item">
+		<a class="nav-link collapsed" href="#" data-bs-toggle="collapse" role="button" data-bs-target="#collapseTagsSidebar"
+			aria-expanded="false" aria-controls="collapseTagsSidebar">
+			<i class="fas fa-fw fa-tags"></i>
+			<span>Context</span>
+		</a>
+		<div id="collapseTagsSidebar" class="collapse" data-bs-parent="#accordionSidebar">
+			<div class="py-2 collapse-inner rounded">
+				<a class="collapse-item" href="/custom_tags/"><i class="fa-solid fa-user-tag fa-fw me-2"></i>Custom tags</a>
+				<a class="collapse-item" href="/admin/taxonomies"><i class="fa-solid fa-tag fa-fw me-2"></i>Taxonomies</a>
+				<a class="collapse-item" href="/admin/galaxies"><i class="fa-solid fa-globe fa-fw me-2"></i>Galaxies</a>
+			</div>
+		</div>
+	</li>
+
+	<li class="nav-item">
+		<a class="nav-link collapsed" href="#" data-bs-toggle="collapse" role="button" data-bs-target="#collapseToolsSidebar"
+			aria-expanded="false" aria-controls="collapseToolsSidebar">
+			<i class="fas fa-fw fa-toolbox"></i>
+			<span>Tools</span>
+		</a>
+		<div id="collapseToolsSidebar" class="collapse" data-bs-parent="#accordionSidebar">
+			<div class="py-2 collapse-inner rounded">
+				<a class="collapse-item" href="/analyzer/misp-modules">
+					<i class="fas fa-fw me-2 fa-magnifying-glass"></i>
+					<span>Analyser</span>
+				</a>
+				<a class="collapse-item" href="/reverify/">
+					<i class="fa-solid fa-fw me-2 fa-file-code"></i>
+					<span>Reverify Binary</span>
+				</a>
+				<a class="collapse-item" href="/reverify/push_misp">
+					<i class="fa-solid fa-fw me-2 fa-share-nodes"></i>
+					<span>Push Case ke MISP</span>
+				</a>
+				<a class="collapse-item" href="/connectors/"><i class="fa-solid fa-link fa-fw me-2"></i>Connectors</a>
+				{% if current_user.is_admin() or current_user.is_importer() or current_user.is_template_editor() %}
+				<a class="collapse-item" href="/tools/importer_view"><i class="fa-solid fa-file-import fa-fw me-2"></i>Importer</a>
+				{% endif %}
+				{% if current_user.is_admin() or current_user.is_case_admin() %}
+				<a class="collapse-item" href="/tools/exporter_view"><i class="fa-solid fa-file-export fa-fw me-2"></i>Exporter</a>
+				{% endif %}
+				<a class="collapse-item" href="/tools/case_misp_event"><i class="fa-solid fa-plus fa-fw me-2"></i>Case from MISP</a>
+				<a class="collapse-item" href="/tools/search_attr"><i class="fa-solid fa-magnifying-glass-location fa-fw me-2"></i>Search attr</a>
+				
+			</div>
+		</div>
+	</li>
+
+	<li class="nav-item">
+		<a class="nav-link collapsed" href="#" data-bs-toggle="collapse" role="button" data-bs-target="#collapseCommunitySidebar"
+			aria-expanded="false" aria-controls="collapseCommunitySidebar">
+			<i class="fas fa-fw fa-earth-europe"></i>
+			<span>Community</span>
+		</a>
+		<div id="collapseCommunitySidebar" class="collapse" data-bs-parent="#accordionSidebar">
+			<div class="py-2 collapse-inner rounded">
+				<a class="collapse-item" href="/admin/orgs"><i class="fa-solid fa-users fa-fw me-3"></i>Orgs</a>
+				<a class="collapse-item" href="/admin/users"><i class="fa-solid fa-user fa-fw me-3"></i>Users</a>
+				<a class="collapse-item" href="/admin/roles"><i class="fa-solid fa-user-shield fa-fw me-3"></i>Roles</a>
+			</div>
+		</div>
+	</li>
+
+	<li class="nav-item">
+		<a class="nav-link collapsed" href="#" data-bs-toggle="collapse" role="button" data-bs-target="#collapseInfoSidebar"
+			aria-expanded="false" aria-controls="collapseInfoSidebar">
+			<i class="fas fa-fw fa-circle-info"></i>
+			<span>Info</span>
+		</a>
+		<div id="collapseInfoSidebar" class="collapse" data-bs-parent="#accordionSidebar">
+			<div class="py-2 collapse-inner rounded">
+				<a class="collapse-item" href="/tools/module"><i class="fa-solid fa-wrench fa-fw me-2"></i>Modules</a>
+				<a class="collapse-item" href="/tools/note_variables_reference"><i class="fa-solid fa-code fa-fw me-2"></i>Variable syntax</a>
+				{% if current_user.is_admin() %}
+				<a class="collapse-item" href="/tools/system_settings"><i class="fa-solid fa-gears fa-fw me-2"></i>System settings</a>
+				{% endif %}
+				{% if current_user.is_admin() or current_user.is_audit_viewer() %}
+				<a class="collapse-item" href="/tools/audit_logs"><i class="fa-solid fa-scroll fa-fw me-2"></i>Audit logs</a>
+				{% endif %}
+			</div>
+		</div>
+	</li>
+
+	<li class="nav-item">
+		<a class="nav-link" href="/tools/stats">
+			<i class="fas fa-fw fa-chart-simple"></i>
+			<span>Statistics</span>
+		</a>
+	</li>
+	
+
+	{% if config.ENABLE_CHATBOT %}
+	<li class="nav-item">
+		<a class="nav-link" href="/chatbot/">
+			<i class="fas fa-fw fa-robot"></i>
+			<span>Chatbot</span>
+		</a>
+	</li>
+	{% endif %}
+
+	<!-- Divider -->
+	<hr class="sidebar-divider d-none d-md-block">
+
+	<!-- Sidebar Toggler (Sidebar) -->
+	<div class="text-center d-none d-md-inline">
+		<button class="rounded-circle border-0" id="sidebarToggle"></button>
+	</div>
+
+</ul>
+  <!-- Sidebar -->
+   
+
+<script>
+	$(document).ready(function() {
+		function normalizePath(path) {
+			if (!path) return "";
+			const normalized = path.replace(/\/+$/, "");
+			return normalized || "/";
+		}
+
+		function getSidebarPathFromCurrentUrl() {
+			const currentPath = normalizePath(window.location.pathname);
+
+			const routeAliases = [
+				{ pattern: /^\/templating\/case\/\d+$/, href: '/templating/cases' },
+				{ pattern: /^\/templating\/edit_case\/\d+$/, href: '/templating/cases' },
+				{ pattern: /^\/templating\/edit_task\/\d+$/, href: '/templating/tasks' },
+				{ pattern: /^\/tools\/note_template_view\/\d+$/, href: '/tools/note_template_index' },
+				{ pattern: /^\/tools\/edit_note_template_view\/\d+$/, href: '/tools/note_template_index' },
+				{ pattern: /^\/tools\/create_note_template_view$/, href: '/tools/note_template_index' }
+			];
+
+			const aliasedMatch = routeAliases.find((alias) => alias.pattern.test(currentPath));
+			if (aliasedMatch) {
+				return aliasedMatch.href;
+			}
+
+			const allLinks = Array.from(document.querySelectorAll('.nav-item .nav-link[href], .collapse-item[href]'))
+				.filter((link) => {
+					const href = link.getAttribute('href');
+					return href && href.startsWith('/');
+				});
+
+			const exactMatch = allLinks.find((link) => normalizePath(link.getAttribute('href')) === currentPath);
+			if (exactMatch) {
+				return exactMatch.getAttribute('href');
+			}
+
+			const prefixMatches = allLinks
+				.filter((link) => {
+					const linkPath = normalizePath(link.getAttribute('href'));
+					return currentPath.startsWith(linkPath + '/');
+				})
+				.sort((a, b) => b.getAttribute('href').length - a.getAttribute('href').length);
+
+			return prefixMatches.length ? prefixMatches[0].getAttribute('href') : null;
+		}
+
+		const metaHint = document.querySelector('meta[name="sidebar-active"]');
+		const effectivePage = (metaHint && metaHint.content) ? metaHint.content : getSidebarPathFromCurrentUrl();
+		if (!effectivePage) return;
+
+		// Find the matching link
+		const activeLink = document.querySelector(`.nav-link[href="${effectivePage}"], .collapse-item[href="${effectivePage}"]`);
+		if (!activeLink) return;
+
+		activeLink.classList.add("active");
+
+		// Add active class
+		const parentNavItem = activeLink.closest('.nav-item');
+		if (parentNavItem) {
+			parentNavItem.classList.add('active');
+		}
+
+		// If it's inside a collapsed menu, open its parent
+		const parentCollapse = activeLink.closest('.collapse');
+		if (parentCollapse) {
+			const collapseToggle = document.querySelector(`[data-bs-target="#${parentCollapse.id}"]`);
+			if (collapseToggle) {
+			parentCollapse.classList.add("show");
+			collapseToggle.classList.remove("collapsed");
+			collapseToggle.setAttribute("aria-expanded", "true");
+			}
+		}
+	})
+
+	fetch('/alerting/api/unread')
+		.then(r => r.json())
+		.then(data => {
+			const badge = document.getElementById('alerting-badge');
+			if (data.count > 0) {
+				badge.textContent = data.count > 99 ? '99+' : data.count;
+				badge.style.display = 'inline-block';
+			}
+		})
+		.catch(() => {});
+
+	// Initialize Bootstrap tooltips
+	document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+</script>

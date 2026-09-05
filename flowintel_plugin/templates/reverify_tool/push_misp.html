@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block head %}
-<title>Push Case ke MISP — Reverify</title>
+<title>Push Case to MISP — Reverify</title>
 {{ super() }}
 {% endblock %}
 
@@ -10,8 +10,8 @@
     <div class="d-flex align-items-center gap-3">
         <i class="fa-solid fa-share-nodes fa-2x" style="opacity: 0.85;"></i>
         <div>
-            <h5 class="mb-0 fw-bold">Push Case ke MISP</h5>
-            <small style="opacity: 0.75;">Pilih case yang sudah ada → analisis ulang → buat MISP event</small>
+            <h5 class="mb-0 fw-bold">Push Case to MISP</h5>
+            <small style="opacity: 0.75;">Select an existing case → re-analyze → create MISP event</small>
         </div>
     </div>
 </div>
@@ -30,14 +30,14 @@
 
 {% if not cases %}
 <div class="alert alert-warning">
-    Tidak ada case dengan file yang bisa di-push. Upload binary terlebih dahulu via
+    No cases with files found. Upload a binary first via
     <a href="{{ url_for('reverify_tool.index') }}">Reverify Binary Analysis</a>.
 </div>
 {% else %}
 <div class="card shadow-sm border-0">
   <div class="card-header d-flex align-items-center gap-2" style="background: #f8f9fa;">
       <i class="fa-solid fa-share-nodes text-primary"></i>
-      <strong>Pilih Case &amp; File</strong>
+      <strong>Select Case &amp; File</strong>
   </div>
   <div class="card-body p-4">
     <form method="post" id="push_form">
@@ -49,7 +49,7 @@
             <i class="fa-solid fa-folder-open me-1 text-muted"></i> Case
         </label>
         <select name="case_id" id="case_select" class="form-select" required onchange="updateFiles()">
-          <option value="">— pilih case —</option>
+          <option value="">— select a case —</option>
           {% for item in cases %}
           <option value="{{ item.case.id }}"
                   data-files="{{ item.files | map(attribute='uuid') | list | tojson }}"
@@ -66,7 +66,7 @@
             <i class="fa-solid fa-file-code me-1 text-muted"></i> File
         </label>
         <select name="file_uuid" id="file_select" class="form-select" required disabled>
-          <option value="">— pilih case dulu —</option>
+          <option value="">— select a case first —</option>
         </select>
       </div>
 
@@ -93,7 +93,7 @@
 
       <div class="d-grid">
         <button type="submit" class="btn btn-primary btn-lg" id="submit_btn">
-            <i class="fa-solid fa-share-nodes me-2"></i>Analisis &amp; Push ke MISP
+            <i class="fa-solid fa-share-nodes me-2"></i>Analyze &amp; Push to MISP
         </button>
       </div>
     </form>
@@ -103,7 +103,7 @@
 
 <div class="mt-3 text-center">
     <a href="{{ url_for('reverify_tool.index') }}" class="text-muted" style="font-size: 0.88rem;">
-        <i class="fa-solid fa-arrow-left me-1"></i>Kembali ke Upload Binary
+        <i class="fa-solid fa-arrow-left me-1"></i>Back to Upload Binary
     </a>
 </div>
 
@@ -124,7 +124,7 @@ function updateFiles() {
     const sel = document.getElementById('file_select');
     sel.innerHTML = '';
     if (!cid || !caseData[cid]) {
-        sel.innerHTML = '<option value="">— pilih case dulu —</option>';
+        sel.innerHTML = '<option value="">— select a case first —</option>';
         sel.disabled = true;
         return;
     }
@@ -141,7 +141,7 @@ function updateFiles() {
 document.getElementById('push_form').addEventListener('submit', function() {
     const btn = document.getElementById('submit_btn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Menganalisis & push…';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing & pushing…';
 });
 </script>
 {% endblock %}
