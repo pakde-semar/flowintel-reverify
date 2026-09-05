@@ -2,18 +2,21 @@
 Flowintel module: enrich_observable
 Category: analyze
 
-Enriches a domain, IP address, or file hash against open sources.
+Enriches a domain, IP address, URL, or file hash against open sources.
 No API key required for any source.
 
   Domain → RDAP registration data + CIRCL passive DNS
   IP     → RDAP network info + RIPE Stat ASN/prefix
+  URL    → Lookyloo (CIRCL public instance): redirect chain, IPs contacted, screenshot link
   Hash   → TLSH + ssdeep fuzzy match against local Flowintel uploads corpus
 
 Payload:
-  type         : "domain" | "ip" | "hash"  (auto-detected if omitted)
+  type         : "domain" | "ip" | "url" | "hash"  (auto-detected if omitted)
   value        : the observable to enrich
   corpus_path  : path to scan for fuzzy hash matching
                  (default: /opt/flowintel/uploads/files/)
+  lookyloo_url : Lookyloo instance base URL
+                 (default: https://lookyloo.circl.lu)
 """
 
 import os
@@ -29,17 +32,21 @@ module_config = {
     "connector": "none",
     "case_task": "case",
     "description": (
-        "Enrich a domain, IP, or hash observable against open sources (no API key required). "
+        "Enrich a domain, IP, URL, or hash observable against open sources (no API key required). "
         "Domain/IP: RDAP + CIRCL passive DNS + RIPE Stat ASN. "
+        "URL: Lookyloo (CIRCL public) — redirect chain, IPs contacted, screenshot link. "
         "Hash: TLSH + ssdeep fuzzy match against local upload corpus."
     ),
 }
 
-_DEFAULT_CORPUS = "/opt/flowintel/uploads/files"
-_TIMEOUT = 10
+_DEFAULT_CORPUS   = "/opt/flowintel/uploads/files"
+_DEFAULT_LOOKYLOO = "https://lookyloo.circl.lu"
+_TIMEOUT          = 10
+_LOOKYLOO_WAIT    = 60   # max seconds to wait for capture
 
 _RE_IP4    = re.compile(r'^\d{1,3}(?:\.\d{1,3}){3}$')
 _RE_DOMAIN = re.compile(r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$')
+_RE_URL    = re.compile(r'^https?://', re.IGNORECASE)
 _RE_MD5    = re.compile(r'^[0-9a-fA-F]{32}$')
 _RE_SHA1   = re.compile(r'^[0-9a-fA-F]{40}$')
 _RE_SHA256 = re.compile(r'^[0-9a-fA-F]{64}$')
@@ -51,6 +58,8 @@ _RE_SHA256 = re.compile(r'^[0-9a-fA-F]{64}$')
 
 def _detect_type(value: str) -> str:
     v = value.strip()
+    if _RE_URL.match(v):
+        return "url"
     if _RE_IP4.match(v):
         return "ip"
     if _RE_MD5.match(v) or _RE_SHA1.match(v) or _RE_SHA256.match(v):
@@ -122,6 +131,127 @@ def _rdap_date(data: dict, event_action: str) -> str:
         if ev.get("eventAction") == event_action:
             return ev.get("eventDate", "")
     return ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# URL enrichment — Lookyloo
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _enrich_url(url: str, lookyloo_base: str) -> dict:
+    import time
+    base    = lookyloo_base.rstrip("/")
+    result  = {"url": url, "lookyloo_base": base, "uuid": None,
+               "status": None, "redirects": [], "ips": [],
+               "final_url": None, "error": None}
+
+    # 1. Submit URL
+    try:
+        r = requests.post(
+            f"{base}/submit",
+            json={"url": url, "listing": False},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code not in (200, 201):
+            result["error"] = f"Submit failed: HTTP {r.status_code}"
+            return result
+        uuid = r.text.strip().strip('"')
+        result["uuid"] = uuid
+    except Exception as exc:
+        result["error"] = f"Submit error: {exc}"
+        return result
+
+    # 2. Poll until done (max _LOOKYLOO_WAIT seconds)
+    deadline = time.time() + _LOOKYLOO_WAIT
+    while time.time() < deadline:
+        try:
+            sr = requests.get(f"{base}/status/{uuid}", timeout=_TIMEOUT)
+            data = sr.json()
+            status = data.get("status") or data.get("status_code")
+            result["status"] = status
+            # Lookyloo returns "done" or status_code 0 when complete
+            if str(status).lower() in ("done", "0", "0.0") or status == 0:
+                break
+        except Exception:
+            pass
+        time.sleep(5)
+    else:
+        result["error"] = f"Capture timed out after {_LOOKYLOO_WAIT}s — check {base}/capture/{uuid}"
+        return result
+
+    # 3. Fetch JSON result
+    try:
+        jr = requests.get(f"{base}/json/{uuid}", timeout=_TIMEOUT)
+        data = jr.json()
+
+        # Redirect chain
+        redirects = data.get("redirects", [])
+        if not redirects:
+            # Try nested structure
+            try:
+                nodes = data.get("nodes", {})
+                for node in nodes.values():
+                    url_node = node.get("urls", [])
+                    redirects.extend(url_node)
+            except Exception:
+                pass
+        result["redirects"] = redirects[:20]
+
+        # Final URL
+        result["final_url"] = (redirects[-1] if redirects else url)
+
+        # IPs contacted
+        ips = []
+        try:
+            for hostname, info in data.get("hostnames", {}).items():
+                for ip in info.get("ips", []):
+                    ips.append({"hostname": hostname, "ip": ip})
+        except Exception:
+            pass
+        result["ips"] = ips[:20]
+
+        # Screenshot URL (viewable in browser)
+        result["screenshot_url"] = f"{base}/screenshot/{uuid}"
+        result["capture_url"]    = f"{base}/capture/{uuid}"
+
+    except Exception as exc:
+        result["error"] = f"Result fetch error: {exc}"
+
+    return result
+
+
+def _format_url_note(r: dict) -> str:
+    lines = [f"## Enrichment: `{r['url']}` (URL — Lookyloo)", ""]
+
+    if r.get("error"):
+        lines += [f"**Error:** {r['error']}", ""]
+        if r.get("uuid"):
+            lines += [f"**Capture:** {r['lookyloo_base']}/capture/{r['uuid']}", ""]
+        return "\n".join(lines)
+
+    if r.get("capture_url"):
+        lines += [f"**Capture:** [{r['capture_url']}]({r['capture_url']})"]
+    if r.get("screenshot_url"):
+        lines += [f"**Screenshot:** [{r['screenshot_url']}]({r['screenshot_url']})"]
+    lines.append("")
+
+    if r.get("final_url") and r["final_url"] != r["url"]:
+        lines += [f"**Final URL (after redirects):** `{r['final_url']}`", ""]
+
+    redirects = r.get("redirects", [])
+    if len(redirects) > 1:
+        lines.append("**Redirect chain:**")
+        for i, u in enumerate(redirects):
+            lines.append(f"{i + 1}. `{u}`")
+        lines.append("")
+
+    ips = r.get("ips", [])
+    if ips:
+        lines.append("**IPs contacted:**")
+        for entry in ips:
+            lines.append(f"- `{entry['ip']}` — {entry['hostname']}")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -375,14 +505,16 @@ def _format_hash_note(r: dict) -> str:
 def handler(instance, case, user, case_model=None, db_session=None, payload=None):
     """
     payload:
-      type        : "domain" | "ip" | "hash"  (auto-detected if omitted)
-      value       : observable to enrich
-      corpus_path : path for fuzzy hash scan (default: /opt/flowintel/uploads/files/)
+      type         : "domain" | "ip" | "url" | "hash"  (auto-detected if omitted)
+      value        : observable to enrich
+      corpus_path  : path for fuzzy hash scan (default: /opt/flowintel/uploads/files/)
+      lookyloo_url : Lookyloo instance (default: https://lookyloo.circl.lu)
     """
-    payload     = payload or {}
-    value       = payload.get("value", "").strip()
-    obs_type    = payload.get("type", "").lower() or _detect_type(value)
-    corpus_path = payload.get("corpus_path", _DEFAULT_CORPUS)
+    payload      = payload or {}
+    value        = payload.get("value", "").strip()
+    obs_type     = payload.get("type", "").lower() or _detect_type(value)
+    corpus_path  = payload.get("corpus_path", _DEFAULT_CORPUS)
+    lookyloo_url = payload.get("lookyloo_url", _DEFAULT_LOOKYLOO)
 
     if not value:
         return {"message": "No value provided. Pass 'value' in payload."}
@@ -390,16 +522,19 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
         return {"message": f"Cannot detect type for value: {value!r}. Pass 'type' explicitly."}
 
     if obs_type == "domain":
-        result   = _enrich_domain(value)
-        note     = _format_domain_note(result)
+        result = _enrich_domain(value)
+        note   = _format_domain_note(result)
     elif obs_type == "ip":
-        result   = _enrich_ip(value)
-        note     = _format_ip_note(result)
+        result = _enrich_ip(value)
+        note   = _format_ip_note(result)
+    elif obs_type == "url":
+        result = _enrich_url(value, lookyloo_url)
+        note   = _format_url_note(result)
     elif obs_type == "hash":
-        result   = _enrich_hash(value, corpus_path)
-        note     = _format_hash_note(result)
+        result = _enrich_hash(value, corpus_path)
+        note   = _format_hash_note(result)
     else:
-        return {"message": f"Unsupported type: {obs_type}. Use 'domain', 'ip', or 'hash'."}
+        return {"message": f"Unsupported type: {obs_type}. Use 'domain', 'ip', 'url', or 'hash'."}
 
     _write_note(case, note, db_session)
 
