@@ -199,6 +199,16 @@ Incoming binary
 │  URL    → Lookyloo redirect chain + screenshot          │
 │  Hash   → CIRCL hashlookup + TLSH/ssdeep corpus        │
 └──────────────────────┬──────────────────────────────────┘
+                       │  IPs, hashes, ASNs now in case Notes
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  correlate_observables  (automated, seconds)            │
+│                                                         │
+│  Auto-extract observables from current case Notes       │
+│  Scan Notes of all other cases for matching values      │
+│  Create case links for overlapping cases                │
+│  Write correlation summary to case Notes                │
+└──────────────────────┬──────────────────────────────────┘
                        │
             ┌──────────┴──────────┐
             ▼                     ▼
@@ -226,6 +236,7 @@ Incoming binary
 |------|---------------------|------|-------------|
 | **Reverify** | *What is this file, and what does it contain?* | Seconds | Unknown file, no prior knowledge |
 | **enrich_observable** | *Are these IOCs known? What do they resolve to?* | Seconds | IOCs from triage or supplied directly |
+| **correlate_observables** | *Have we seen these observables before, in other cases?* | Seconds | Enriched case Notes |
 | **YARA** | *How many other files match this pattern?* | Sub-second | Known IOCs or generated rule |
 | **Ghidra** | *What does this binary do?* | Hours | Reverify flagged it as suspicious |
 | **angr** | *Can this binary be exploited, and how?* | Hours – days | Ghidra confirmed a vulnerability |
@@ -237,6 +248,8 @@ Incoming binary
 > Use **Reverify** to triage an unknown file and generate structured evidence — hashes, IOCs, a YARA rule — in seconds.
 >
 > Use **enrich_observable** to look up every IOC from triage against open sources — reputation, passive DNS, redirect chains, fuzzy matches — without leaving Flowintel.
+>
+> Use **correlate_observables** to find other cases in this instance that share the same infrastructure — linking cases that belong to the same campaign.
 >
 > Use **YARA** to hunt for variants across a file collection using the rule Reverify produced.
 >

@@ -319,7 +319,85 @@ Pass `"type"` explicitly to override.
 
 ---
 
-## Workflow E — Open a case from Mattermost
+## Workflow E — Cross-case correlation
+
+Run after observable enrichment to find other cases in this Flowintel instance
+that share the same IPs, hashes, or ASNs — linking them as a campaign cluster.
+
+### Auto mode (recommended)
+
+Observables are extracted from the current case Notes automatically.
+Run this after `enrich_observable` has written enrichment results:
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"module": "correlate_observables", "payload": {}}'
+```
+
+### Manual mode — explicit observables
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "correlate_observables",
+    "payload": {
+      "observables": ["198.51.100.1", "AS12345", "f15a57d9..."],
+      "min_overlap": 2
+    }
+  }'
+```
+
+### What happens
+
+1. Extracts IPs, hashes (MD5/SHA1/SHA256), and ASNs from the current case Notes
+2. Scans Notes of every other case in the instance for matching values
+3. For each case that shares at least `min_overlap` observables:
+   - Creates a `Case_Link_Case` record (visible in Flowintel **Linked Cases** tab)
+   - Lists which observables are shared and how many
+4. Writes a correlation summary to the current case Notes
+
+### Response
+
+```json
+{
+  "searched": 5,
+  "matched_cases": 2,
+  "linked": [8, 9],
+  "correlations": [
+    {
+      "case_id": 8,
+      "title": "Uji coba kirim 1",
+      "matches": [
+        {"value": "f15a57d9...", "type": "hash"},
+        {"value": "1ada846a...", "type": "hash"}
+      ]
+    }
+  ]
+}
+```
+
+### Note written to case
+
+```
+## Correlation: Case #17
+
+Searched 5 observable(s) across all cases.
+Found overlap in 2 case(s):
+
+### Case #8 — Uji coba kirim 1 (2 shared observables)
+_Last modified: 2026-09-05_
+- `f15a57d9...` (hash)
+- `1ada846a...` (hash)
+_case link created ✓_
+```
+
+---
+
+## Workflow F — Open a case from Mattermost
 
 Use when an incident is reported in Mattermost and you want to open a Flowintel case
 without leaving the chat.
@@ -374,7 +452,7 @@ MATTERMOST_SLASH_TOKEN = "<token-from-mattermost-slash-command>"  # optional
 
 ---
 
-## Workflow F — Notify a user via Mattermost from Flowintel
+## Workflow G — Notify a user via Mattermost from Flowintel
 
 Use when you want to alert a team member about a task inside Flowintel.
 

@@ -18,29 +18,27 @@ Every finding is grounded in raw bytes. Every step produces evidence an analyst 
 
 ## What it does
 
-Two parallel pipelines share the same Flowintel case as their container:
+Three modules share the same Flowintel case as their container:
 
 ```
-┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐
-│  Binary triage pipeline              │  │  Observable enrichment pipeline       │
-│                                      │  │                                      │
-│  Stage 1 — Static analysis           │  │  Domain → RDAP + CIRCL passive DNS   │
-│    file type, arch, hashes,          │  │  IP     → RDAP + RIPE Stat ASN       │
-│    sections, imports, strings        │  │  URL    → Lookyloo redirect chain,   │
-│                                      │  │          screenshot                  │
-│  Stage 2 — YARA rule generation      │  │  Hash   → CIRCL hashlookup           │
-│    hashes + IOC strings → rule       │  │          (KnownMalicious flag) +      │
-│    validated + saved to Notes        │  │          TLSH/ssdeep local corpus    │
-│                                      │  │                                      │
-│  Stage 3 — Evidence distribution     │  │  All results written to case Notes   │
-│    MISP event + Flowintel MISP tab   │  │  No API key required for any source  │
-│    Mattermost #flowintel-alerts      │  │                                      │
-└──────────────────────────────────────┘  └──────────────────────────────────────┘
-                        │                                      │
-                        └──────────────┬───────────────────────┘
-                                       ▼
-                              FLOWINTEL CASE
-                         (Notes · MISP tab · Tasks)
+┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
+│  reverify_binary     │  │  enrich_observable    │  │ correlate_observables│
+│                      │  │                      │  │                      │
+│  Stage 1 — Static    │  │  Domain → RDAP+PDNS  │  │  Auto-extract IPs,   │
+│    analysis          │  │  IP     → RDAP+RIPE  │  │  hashes, ASNs from   │
+│  Stage 2 — YARA rule │  │  URL    → Lookyloo   │  │  current case Notes  │
+│    generation        │  │  Hash   → CIRCL      │  │                      │
+│  Stage 3 — MISP push │  │          lookup +    │  │  Scan all other case │
+│    + Mattermost      │  │          TLSH/ssdeep │  │  Notes for matches   │
+│                      │  │                      │  │                      │
+│                      │  │  No API key required │  │  Create case links   │
+│                      │  │  Results → Notes     │  │  Write corr. note    │
+└──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+          │                          │                          │
+          └──────────────────────────┴──────────────────────────┘
+                                     ▼
+                            FLOWINTEL CASE
+                     (Notes · MISP tab · Tasks · Links)
 ```
 
 ---
@@ -167,6 +165,32 @@ CIRCL hashlookup: KNOWN MALICIOUS ⚠️ (source: malshare.com)
 If the hash is not found in public databases (novel or private malware), TLSH and ssdeep
 fuzzy-match the file against every other file in the local Flowintel uploads corpus to detect
 structural variants — even across recompiled samples.
+
+### Local correlation
+
+After enrichment, `correlate_observables` finds other cases in this Flowintel instance
+that share the same observables — connecting cases that belong to the same campaign or
+attacker infrastructure:
+
+```
+## Correlation: Case #17
+
+Searched 5 observable(s) across all cases.
+Found overlap in 2 case(s):
+
+### Case #8 — Uji coba kirim 1 (2 shared observables)
+- `f15a57d9...` (hash)
+- `1ada846a...` (hash)
+case link created ✓
+
+### Case #9 — check file 2 (2 shared observables)
+- `f15a57d9...` (hash)
+- `1ada846a...` (hash)
+case link created ✓
+```
+
+Flowintel's **Linked Cases** tab shows the connections. Observables are auto-extracted
+from the current case Notes — no manual input needed after the enrichment step.
 
 ### URL enrichment detail
 
@@ -351,6 +375,22 @@ curl ... -d '{"module": "enrich_observable", "payload": {"value": "https://malic
 
 Type is auto-detected from the value. Pass `"type"` explicitly if needed.
 
+### Run local correlation via API
+
+```bash
+# Auto-extract observables from case Notes (run after enrich_observable)
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"module": "correlate_observables", "payload": {}}'
+
+# Or pass explicit observables
+curl ... -d '{
+  "module": "correlate_observables",
+  "payload": {"observables": ["198.51.100.1", "AS12345", "f15a57d9..."]}
+}'
+```
+
 ---
 
 ## Payload options
@@ -373,6 +413,15 @@ Type is auto-detected from the value. Pass `"type"` explicitly if needed.
 | `type` | `"domain"` \| `"ip"` \| `"url"` \| `"hash"` | auto-detected | Observable type |
 | `corpus_path` | string | `/opt/flowintel/uploads/files/` | Path for TLSH/ssdeep corpus scan |
 | `lookyloo_url` | string | `https://lookyloo.circl.lu` | Lookyloo instance for URL capture |
+
+### correlate_observables
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `observables` | list of strings | — | Values to search for; auto-extracted from Notes if omitted |
+| `types` | list | `["ip","hash","asn"]` | Types to auto-extract when `observables` not given |
+| `create_links` | boolean | `true` | Create Flowintel case links for matching cases |
+| `min_overlap` | integer | `1` | Minimum shared observables to include a case in results |
 
 ### Depth options (reverify_binary)
 

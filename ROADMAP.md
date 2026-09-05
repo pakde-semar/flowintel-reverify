@@ -36,15 +36,19 @@
              ▼                 ▼                 ▼
           domain/IP           URL               hash
              │                 │                 │
-          RDAP/DNS          Lookyloo        local corpus
+          RDAP/DNS          Lookyloo        CIRCL lookup
           ASN/PDNS          redirects       TLSH/ssdeep
              │                 │                 │
              └─────────────────┼─────────────────┘
                                ▼
                          RELATIONSHIPS
                                │
+                    shared IPs, ASNs, hashes
+                               │
                                ▼
                        LOCAL CORRELATION
+                               │
+                    cross-case scan + case links
                                │
                                ▼
                        ANALYST ASSESSMENT
@@ -99,22 +103,23 @@
 - Mattermost notify_user module — task bell notification to `#flowintel-alerts`
 - Mattermost slash command `/flowintel <title>` → create Flowintel case
 
+### Observable enrichment (`enrich_observable`)
+
+| Observable | Sources | Tools |
+|------------|---------|-------|
+| Domain / IP | RDAP, CIRCL passive DNS, RIPE Stat ASN | — |
+| URL | Redirect chain, screenshot | Lookyloo (CIRCL public) |
+| Hash | CIRCL hashlookup (KnownMalicious) + local corpus fuzzy match | TLSH, ssdeep |
+
+### Local correlation (`correlate_observables`)
+- Auto-extracts IPs, hashes, ASNs from current case Notes
+- Scans Notes of all other cases for matching values
+- Creates `Case_Link_Case` records for matching cases
+- Writes correlation summary to case Notes
+
 ---
 
 ## In progress / next
-
-### Observable extraction & enrichment pipeline
-
-`enrich_observable` analyze module — live on server:
-
-| Observable | Sources | Tools | Status |
-|------------|---------|-------|--------|
-| Domain / IP | RDAP, CIRCL passive DNS, RIPE Stat ASN | — | Done |
-| URL | Redirect chain, screenshot | Lookyloo (CIRCL public) | Done |
-| Hash | Local corpus fuzzy match | TLSH, ssdeep | Done |
-
-Output feeds into **local correlation** — relationships across cases and campaigns —
-before reaching analyst assessment.
 
 ### Analyst assessment gate
 
@@ -132,7 +137,7 @@ Output: targeted mitigation or advisory per case / campaign.
 
 ## Considering
 
-- Integration mechanism for enrichment pipeline inside Flowintel case workflow
-- How to represent relationships between observables across cases (local correlation layer)
+- Domain/URL in local correlation (currently IP, hash, ASN only — domains produce too many false positives from free text)
 - Lookyloo private instance on dedicated VM (currently using CIRCL public — slow, no privacy)
 - angr integration for proof-of-exploitability after Ghidra triage
+- Relationship graph visualization inside Flowintel case (linked cases + shared observables)
