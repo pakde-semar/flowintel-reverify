@@ -101,7 +101,7 @@ all possible execution paths simultaneously.
 
 ---
 
-## 3. All three together
+## 3. All three together (Reverify · Ghidra · angr)
 
 Each tool occupies a distinct tier in a binary analysis pipeline:
 
@@ -151,10 +151,102 @@ Incoming binary
 | **Ghidra** | *What does this binary do?* | Hours | High |
 | **angr** | *Can this binary be exploited, and how?* | Hours – days | Very high |
 
+See [Section 5](#5-all-four-together) for the full four-tool comparison including YARA.
+
+---
+
+## 4. YARA vs Reverify
+
+[YARA](https://github.com/VirusTotal/yara) is a pattern-matching engine developed at VirusTotal.
+It scans files against user-written rules (signatures) to detect known malware families or behaviors.
+
+### Feature comparison
+
+| Aspect | YARA | Reverify |
+|--------|------|----------|
+| **Type** | Pattern-matching / signature engine | Static analysis toolkit |
+| **Developed by** | VirusTotal (open source) | Independent (open source) |
+| **Core technique** | Rule-based scanning — byte patterns, strings, conditions | Binary parsing — headers, sections, imports, disassembly |
+| **Requires rules?** | Yes — useless without rules | No — analyzes any file immediately |
+| **Output** | Match / No match — "file matches rule Mirai.v2" | Structured findings — type, architecture, hashes, strings, IOCs |
+| **False positives** | Depends on rule quality | None — reports only facts from bytes |
+| **Hash computation** | No | Yes — MD5, SHA1, SHA256 |
+| **String extraction** | No (strings are inputs to rules, not outputs) | Yes |
+| **Disassembly** | No | Yes — entry-point disasm (full mode) |
+| **Header parsing** | No | Yes — PE, ELF, Mach-O |
+| **Automation / pipeline** | Yes — CLI and library | Yes — designed for it |
+| **Speed** | Very fast (sub-second) | Fast (seconds) |
+| **Flowintel / MISP integration** | None built-in | Native |
+| **Best for** | Detecting known malware across a file collection | Extracting unknown structure from a single sample |
+
+### When to use YARA
+
+- You have an existing rule set and want to scan a collection of files for known malware
+- You want to detect variants of a known family across thousands of samples
+- You need to write signatures from IOCs found during manual analysis
+- You are running automated scanning on incoming files at scale
+
+### When to use Reverify
+
+- You have an unknown file and need to understand what it is
+- You are extracting IOCs (hashes, strings, suspicious patterns) to then write YARA rules from
+- You are feeding structured findings into Flowintel, TheHive, or MISP automatically
+- You need deterministic output without any prior knowledge of the file
+
+### How they work together
+
+YARA and Reverify are **complementary, not competing**:
+
+```
+Incoming unknown binary
+        │
+        ▼
+┌──────────────────────────────────────────────┐
+│  Reverify  (seconds)                         │
+│                                              │
+│  • Extract hashes, strings, structure        │
+│  • Identify suspicious patterns and IOCs     │
+│  • Push to MISP / Flowintel automatically    │
+└──────────────────┬───────────────────────────┘
+                   │
+                   │  use findings to
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Write YARA rule from Reverify findings      │
+│                                              │
+│  rule SuspiciousDropper {                    │
+│    strings:                                  │
+│      $s1 = "CreateRemoteThread"              │
+│      $s2 = "http://malicious.example.com"    │
+│    condition: all of them                    │
+│  }                                           │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────┐
+│  YARA scan  (sub-second per file)            │
+│                                              │
+│  • Scan file collection for the new rule     │
+│  • Detect other variants of the same family  │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## 5. All four together
+
+| Tool | Question it answers | Time | Skill required |
+|------|---------------------|------|----------------|
+| **Reverify** | *What is this file?* | Seconds | Low |
+| **YARA** | *How many other files match this pattern?* | Sub-second | Medium (rule writing) |
+| **Ghidra** | *What does this binary do?* | Hours | High |
+| **angr** | *Can this binary be exploited, and how?* | Hours – days | Very high |
+
 ---
 
 ## Summary
 
 > Use **Reverify** to triage at scale and feed your platforms automatically.
+> Use **YARA** to detect known patterns and hunt for variants across a file collection.
 > Use **Ghidra** to understand *what* a binary does.
 > Use **angr** to prove *whether* a binary can be exploited and *how*.
