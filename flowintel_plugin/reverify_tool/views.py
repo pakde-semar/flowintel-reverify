@@ -38,7 +38,8 @@ def index():
 def analyze():
     title = request.form.get("title", "").strip()
     description = request.form.get("description", "").strip()
-    depth = request.form.get("depth", "quick")
+    depth        = request.form.get("depth", "quick")
+    push_to_misp = request.form.get("push_to_misp") == "true"
     uploaded_file = request.files.get("binary")
 
     # ── Validation ────────────────────────────────────────────────────────────
@@ -114,12 +115,21 @@ def analyze():
                 user={"id": current_user.id, "email": current_user.email},
                 case_model=CaseModel,
                 db_session=db,
-                payload={"file_path": file_path, "depth": depth, "display_name": filename},
+                payload={"file_path": file_path, "depth": depth,
+                         "display_name": filename, "push_to_misp": push_to_misp},
             )
             if result and "message" in result and "findings" not in result:
                 flash(f"Reverify error: {result['message']}", "warning")
             else:
-                flash("Analysis complete — results saved to case Notes.", "success")
+                msg = "Analysis complete — results saved to case Notes."
+                if push_to_misp:
+                    misp_url = result.get("misp_event_url")
+                    misp_err = result.get("misp_error")
+                    if misp_url:
+                        msg += f" MISP event: {misp_url}"
+                    elif misp_err:
+                        msg += f" MISP push failed: {misp_err}"
+                flash(msg, "success")
         else:
             flash("reverify_binary module not found.", "warning")
     except Exception as exc:
