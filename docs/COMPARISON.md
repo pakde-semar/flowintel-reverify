@@ -1,49 +1,46 @@
-# Reverify — Tool Comparisons
+# Tool Comparisons
 
-Reverify is a lightweight static analysis toolkit designed for automated triage.
-This page compares it against two widely-used tools — **Ghidra** and **angr** —
-to clarify where each one belongs in a binary analysis workflow.
+This page situates flowintel-reverify within a broader malware analysis ecosystem.
+Each tool occupies a distinct role — understanding where one ends and another begins
+determines how to build an effective pipeline, not which tool to pick over another.
 
 ---
 
 ## 1. Ghidra vs Reverify
 
 [Ghidra](https://github.com/NationalSecurityAgency/ghidra) is a full reverse engineering
-suite developed by the NSA. It provides a GUI-based environment for deep, manual analysis.
+suite developed by the NSA. It provides a GUI environment for deep, manual analysis of
+a single binary.
 
 ### Feature comparison
 
 | Aspect | Ghidra | Reverify |
 |--------|--------|----------|
-| **Type** | Full reverse engineering suite | Lightweight analysis toolkit |
-| **Developed by** | NSA (open source) | Independent (open source) |
+| **Type** | Full RE suite | Static analysis toolkit |
 | **Interface** | Desktop GUI (Java) | CLI / Python library / API |
 | **Disassembly** | Full binary — all functions, call graph, cross-references | Entry point (configurable depth) |
 | **Decompiler** | Yes — C pseudocode output | No |
 | **String extraction** | Yes | Yes |
 | **Header parsing** | Yes — PE, ELF, Mach-O, and more | Yes — PE, ELF, Mach-O |
 | **Import / export listing** | Yes | Yes |
-| **Hash computation** | No (requires external tool) | Yes — MD5, SHA1, SHA256 |
+| **Hash computation** | No (external tool required) | Yes — MD5, SHA1, SHA256 |
 | **Scripting** | Java / Python via Ghidra API | Native Python library |
-| **Automation / pipeline** | Possible via headless mode — complex setup | Designed for it — `import reverify` |
-| **Resource usage** | Heavy — 4 GB+ RAM, JDK required | Lightweight — pure Python + optional lief |
-| **Flowintel / MISP integration** | None built-in | Native — push findings as MISP objects |
-| **Anti-hallucination design** | Not applicable | Core principle — every claim verified against raw bytes |
-| **Learning curve** | High | Low |
-| **Best for** | Deep manual analysis | Automated triage and enrichment |
+| **Pipeline automation** | Possible via headless mode — complex setup | Designed for it |
+| **Resource usage** | Heavy — 4 GB+ RAM, JDK required | Lightweight — pure Python |
+| **Flowintel / MISP integration** | None built-in | Native |
+| **Best for** | Deep manual analysis of one binary | Automated triage across many files |
 
 ### When to use Ghidra
 
 - A human analyst needs to deeply understand what a binary does
 - You need to decompile obfuscated or packed code into readable C pseudocode
-- You are tracing execution flow, patching a binary, or recovering a custom protocol
-- The binary warrants hours of manual investigation
+- You are tracing execution flow or recovering a custom protocol
+- Reverify flagged suspicious indicators that warrant hours of manual investigation
 
 ### When to use Reverify
 
-- You need fast, automated triage across many files
-- You are enriching a case management or SOAR platform (Flowintel, TheHive, etc.)
-- You are building a pipeline that pushes structured findings to MISP automatically
+- You need fast, automated triage as the first stage of the pipeline
+- You are populating a Flowintel case or MISP event with structured findings
 - You need deterministic, reproducible output with no interpretation layer
 - Your server has limited resources (no JDK, limited RAM)
 
@@ -51,35 +48,28 @@ suite developed by the NSA. It provides a GUI-based environment for deep, manual
 
 ## 2. angr vs Reverify
 
-[angr](https://github.com/angr/angr) is a binary analysis framework developed at
-UC Santa Barbara (UCSB). Its core capability is **symbolic execution** — running a binary
-with mathematical (symbolic) variables, then using a Z3 SMT solver to reason about
-all possible execution paths simultaneously.
+[angr](https://github.com/angr/angr) is a binary analysis framework from UC Santa Barbara.
+Its core capability is symbolic execution — running a binary with symbolic variables, then
+using a Z3 SMT solver to reason about all possible execution paths simultaneously.
 
 ### Feature comparison
 
 | Aspect | angr | Reverify |
 |--------|------|----------|
-| **Type** | Binary analysis framework | Lightweight analysis toolkit |
-| **Developed by** | UC Santa Barbara (UCSB) | Independent (open source) |
+| **Type** | Binary analysis framework | Static analysis toolkit |
 | **Core technique** | Symbolic / concolic execution | Static parsing |
 | **Disassembly** | Full — all reachable code paths | Entry point (configurable depth) |
-| **Decompiler** | No | No |
-| **Symbolic execution** | Yes — variables carry symbolic constraints | No |
-| **Constraint solving** | Yes — Z3 SMT solver built in | No |
+| **Symbolic execution** | Yes | No |
+| **Constraint solving** | Yes — Z3 SMT solver | No |
 | **Control flow graph** | Yes — full CFG recovery | No |
-| **Data flow analysis** | Yes | No |
-| **Vulnerability discovery** | Yes — find exploitable paths automatically | No |
+| **Vulnerability discovery** | Yes | No |
 | **Exploit generation** | Yes (via angrop, rex) | No |
-| **Header parsing** | Yes (via CLE loader) | Yes — PE, ELF, Mach-O |
 | **Hash computation** | No | Yes — MD5, SHA1, SHA256 |
 | **String extraction** | No | Yes |
-| **Suspicious string detection** | No | Yes |
-| **Supported architectures** | x86, x86\_64, ARM, AArch64, MIPS, PPC, and more | x86, x86\_64, ARM, AArch64 |
-| **Interface** | Python library | Python library / CLI |
-| **Resource usage** | Heavy — symbolic execution is CPU/RAM intensive | Lightweight — runs on minimal hardware |
+| **IOC classification** | No | Yes |
+| **Pipeline automation** | Python library | Python library / CLI |
+| **Resource usage** | Heavy — symbolic execution is CPU/RAM intensive | Lightweight |
 | **Speed on a typical binary** | Minutes to hours | Seconds |
-| **Learning curve** | Very high | Low |
 | **Flowintel / MISP integration** | None built-in | Native |
 | **Best for** | Vulnerability research, CTF, exploit development | Automated triage and enrichment |
 
@@ -88,140 +78,56 @@ all possible execution paths simultaneously.
 - You need to prove whether a binary contains an exploitable vulnerability
 - You are solving a CTF challenge that requires symbolic reasoning
 - You need to find what exact input drives execution to a specific code path
-- You are doing academic or advanced security research on a specific binary
-- You have hours or days to spend on a single sample
+- You are doing advanced security research on a specific binary
 
 ### When to use Reverify
 
-- You need fast, automated triage across many files
+- You need fast, automated triage as the first stage of the pipeline
 - You are feeding structured findings into Flowintel, TheHive, or a SOAR platform
-- You need deterministic, reproducible output without an SMT solver overhead
-- You are enriching [MISP](https://github.com/MISP/MISP) events automatically
+- You need deterministic output without SMT solver overhead
 - Your pipeline must complete in seconds, not hours
 
 ---
 
-## 3. All three together (Reverify · Ghidra · angr)
+## 3. YARA vs Reverify
 
-Each tool occupies a distinct tier in a binary analysis pipeline:
-
-```
-Incoming binary
-      │
-      ▼
-┌─────────────────────────────────────────────────────────┐
-│  Reverify  (automated, seconds)                         │
-│                                                         │
-│  • File type, architecture, hashes                      │
-│  • Sections, imports, exports                           │
-│  • String extraction + suspicious string scan           │
-│  • Entry-point disassembly (full mode)                  │
-│                                                         │
-│  → Flowintel case Notes (Markdown)                      │
-│  → MISP event: file / pe / elf + section objects        │
-│  → Flowintel MISP tab: synced automatically             │
-└─────────────────────────────────────────────────────────┘
-      │
-      │  suspicious imports / strings? escalate to analyst
-      ▼
-┌─────────────────────────────────────────────────────────┐
-│  Ghidra  (manual, hours)                                │
-│                                                         │
-│  • Full disassembly of all functions                    │
-│  • Decompile to C pseudocode                            │
-│  • Trace execution flow, recover custom protocols       │
-│  • Confirm and refine IOCs found by Reverify            │
-└─────────────────────────────────────────────────────────┘
-      │
-      │  need to prove exploitability?
-      ▼
-┌─────────────────────────────────────────────────────────┐
-│  angr  (research-grade, hours to days)                  │
-│                                                         │
-│  • Symbolic execution across all code paths             │
-│  • Constraint solving via Z3 SMT solver                 │
-│  • Find exact input that triggers a vulnerability       │
-│  • Automatic exploit / PoC generation (angrop, rex)     │
-└─────────────────────────────────────────────────────────┘
-```
-
-| Tool | Question it answers | Time | Skill required |
-|------|---------------------|------|----------------|
-| **Reverify** | *What is this file?* | Seconds | Low |
-| **Ghidra** | *What does this binary do?* | Hours | High |
-| **angr** | *Can this binary be exploited, and how?* | Hours – days | Very high |
-
-See [Section 5](#5-all-four-together) for the full four-tool comparison including YARA.
-
----
-
-## 4. YARA vs Reverify
-
-[YARA](https://github.com/VirusTotal/yara) is a pattern-matching engine developed at VirusTotal.
-It scans files against user-written rules (signatures) to detect known malware families or behaviors.
+[YARA](https://github.com/VirusTotal/yara) is a pattern-matching engine from VirusTotal.
+It scans files against user-written rules to detect known malware families or behaviors.
 
 ### Feature comparison
 
 | Aspect | YARA | Reverify |
 |--------|------|----------|
 | **Type** | Pattern-matching / signature engine | Static analysis toolkit |
-| **Developed by** | VirusTotal (open source) | Independent (open source) |
 | **Core technique** | Rule-based scanning — byte patterns, strings, conditions | Binary parsing — headers, sections, imports, disassembly |
-| **Requires rules?** | Yes — useless without rules | No — analyzes any file immediately |
-| **Output** | Match / No match — "file matches rule Mirai.v2" | Structured findings — type, architecture, hashes, strings, IOCs |
-| **False positives** | Depends on rule quality | None — reports only facts from bytes |
+| **Requires prior knowledge?** | Yes — useless without rules | No — analyzes any unknown file |
+| **Output** | Match / No match | Structured findings — type, hashes, IOCs, strings |
 | **Hash computation** | No | Yes — MD5, SHA1, SHA256 |
-| **String extraction** | No (strings are inputs to rules, not outputs) | Yes |
-| **Disassembly** | No | Yes — entry-point disasm (full mode) |
-| **Header parsing** | No | Yes — PE, ELF, Mach-O |
-| **Automation / pipeline** | Yes — CLI and library | Yes — designed for it |
-| **Speed** | Very fast (sub-second) | Fast (seconds) |
+| **String extraction** | No (strings are rule inputs, not outputs) | Yes |
+| **IOC classification** | No | Yes — URLs, IPs, domains, registry keys |
+| **Header parsing** | No | Yes |
+| **Speed** | Very fast (sub-second per file) | Fast (seconds per file) |
 | **Flowintel / MISP integration** | None built-in | Native |
-| **Best for** | Detecting known malware across a file collection | Extracting unknown structure from a single sample |
+| **Best for** | Detecting known patterns across a file collection | Extracting unknown structure from a single sample |
 
-### When to use YARA
+### How they work together in this pipeline
 
-- You have an existing rule set and want to scan a collection of files for known malware
-- You want to detect variants of a known family across thousands of samples
-- You need to write signatures from IOCs found during manual analysis
-- You are running automated scanning on incoming files at scale
-
-### When to use Reverify
-
-- You have an unknown file and need to understand what it is
-- You are extracting IOCs (hashes, strings, suspicious patterns) to then write YARA rules from
-- You are feeding structured findings into Flowintel, TheHive, or MISP automatically
-- You need deterministic output without any prior knowledge of the file
-
-### How they work together
-
-YARA and Reverify are **complementary, not competing**:
+YARA and Reverify are **complementary** — Reverify extracts, YARA detects.
+In this pipeline, Reverify generates the YARA rule automatically from its own findings:
 
 ```
 Incoming unknown binary
         │
         ▼
 ┌──────────────────────────────────────────────┐
-│  Reverify  (seconds)                         │
+│  Reverify  (Stage 1 + Stage 2)               │
 │                                              │
-│  • Extract hashes, strings, structure        │
-│  • Identify suspicious patterns and IOCs     │
-│  • Push to MISP / Flowintel automatically    │
+│  • Extract hashes, strings, IOCs             │
+│  • Classify: URLs, IPs, domains, regkeys     │
+│  • Build YARA rule from hashes + IOC strings │
+│  • Save rule to case Notes                   │
 └──────────────────┬───────────────────────────┘
-                   │
-                   │  use findings to
-                   ▼
-┌──────────────────────────────────────────────┐
-│  Write YARA rule from Reverify findings      │
-│                                              │
-│  rule SuspiciousDropper {                    │
-│    strings:                                  │
-│      $s1 = "CreateRemoteThread"              │
-│      $s2 = "http://malicious.example.com"    │
-│    condition: all of them                    │
-│  }                                           │
-└──────────────────┬───────────────────────────┘
-                   │
+                   │  analyst reviews and tunes the rule
                    ▼
 ┌──────────────────────────────────────────────┐
 │  YARA scan  (sub-second per file)            │
@@ -231,22 +137,65 @@ Incoming unknown binary
 └──────────────────────────────────────────────┘
 ```
 
+The analyst receives a ready-to-deploy rule. They tune the condition
+(e.g. `2 of ($s*)` instead of `any of ($s*)`) before scanning at scale.
+
 ---
 
-## 5. All four together
+## 4. All four together
 
-| Tool | Question it answers | Time | Skill required |
-|------|---------------------|------|----------------|
-| **Reverify** | *What is this file?* | Seconds | Low |
-| **YARA** | *How many other files match this pattern?* | Sub-second | Medium (rule writing) |
-| **Ghidra** | *What does this binary do?* | Hours | High |
-| **angr** | *Can this binary be exploited, and how?* | Hours – days | Very high |
+Each tool occupies a distinct stage in the investigation lifecycle:
+
+```
+Incoming binary
+      │
+      ▼
+┌─────────────────────────────────────────────────────────┐
+│  Reverify  (automated, seconds)                         │
+│                                                         │
+│  Stage 1: file type, architecture, hashes,              │
+│           sections, imports, strings, IOCs              │
+│  Stage 2: YARA rule from hashes + IOC strings           │
+│  Stage 3: MISP event + Flowintel MISP tab               │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+            ┌──────────┴──────────┐
+            ▼                     ▼
+┌────────────────────┐   ┌────────────────────────────────┐
+│  YARA  (seconds)   │   │  Ghidra  (hours)               │
+│                    │   │                                │
+│  Hunt for variants │   │  Deep manual analysis          │
+│  across file sets  │   │  Decompile, trace flow,        │
+│  using the         │   │  confirm IOCs from Reverify    │
+│  generated rule    │   │                                │
+└────────────────────┘   └──────────────────┬─────────────┘
+                                            │
+                                            │  exploitability needed?
+                                            ▼
+                         ┌────────────────────────────────┐
+                         │  angr  (hours to days)         │
+                         │                                │
+                         │  Symbolic execution            │
+                         │  Constraint solving via Z3     │
+                         │  Exploit / PoC generation      │
+                         └────────────────────────────────┘
+```
+
+| Tool | Question it answers | Time | Entry point |
+|------|---------------------|------|-------------|
+| **Reverify** | *What is this file, and what does it contain?* | Seconds | Unknown file, no prior knowledge |
+| **YARA** | *How many other files match this pattern?* | Sub-second | Known IOCs or generated rule |
+| **Ghidra** | *What does this binary do?* | Hours | Reverify flagged it as suspicious |
+| **angr** | *Can this binary be exploited, and how?* | Hours – days | Ghidra confirmed a vulnerability |
 
 ---
 
 ## Summary
 
-> Use **Reverify** to triage at scale and feed your platforms automatically.
-> Use **YARA** to detect known patterns and hunt for variants across a file collection.
-> Use **Ghidra** to understand *what* a binary does.
-> Use **angr** to prove *whether* a binary can be exploited and *how*.
+> Use **Reverify** to triage an unknown file and generate structured evidence — hashes, IOCs, a YARA rule — in seconds.
+>
+> Use **YARA** to hunt for variants across a file collection using the rule Reverify produced.
+>
+> Use **Ghidra** to understand what a confirmed suspicious binary actually does.
+>
+> Use **angr** to prove whether a binary can be exploited and to generate a proof of concept.
