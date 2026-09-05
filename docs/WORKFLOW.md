@@ -27,12 +27,22 @@ Binary file
     │
     ▼
 ┌─────────────────────────────────────────────────────────┐
-│  MISP Event                                             │
+│  MISP Event (external)                                  │
 │   ├── Object: file  (filename, md5, sha1, sha256, size) │
 │   ├── Object: pe / elf  (arch, entrypoint, sections)    │
 │   ├── Objects: pe-section / elf-section  (×N)           │
 │   └── Attributes (full mode):                           │
 │        url · ip-dst · domain · regkey · pattern-in-file │
+└─────────────────────────────────────────────────────────┘
+    │
+    │  auto-sync back
+    ▼
+┌─────────────────────────────────────────────────────────┐
+│  Flowintel Case — MISP tab                              │
+│   ├── file object with all attributes                   │
+│   ├── pe / elf object                                   │
+│   ├── pe-section / elf-section objects (×N)             │
+│   └── standalone attributes (full mode)                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -69,10 +79,29 @@ Click **Create Case & Analyze**. The page will:
 2. Save the uploaded file to the case
 3. Run Reverify analysis (may take a few seconds for large binaries)
 4. Write findings to the **Notes** tab of the case
-5. If MISP push is enabled — create a MISP event and include the event URL in the note
+5. If MISP push is enabled:
+   - Create a MISP event with structured objects
+   - Sync all objects and attributes back into the case's **MISP tab** automatically
+   - Include the MISP event URL in the case note
 6. Redirect to the new case page
 
 ### 4. Review results
+
+**Notes tab** (sticky-note icon) — Markdown summary:
+
+```
+## Reverify: `sample.exe` — PE x86_64 64bit
+...
+**MISP Event:** https://<your-misp>/events/view/2117
+```
+
+**MISP tab** — structured objects and attributes synced from the MISP event:
+
+```
+file        filename · md5 · sha1 · sha256 · size-in-bytes · mimetype
+pe          type · machine-type · number-sections · entrypoint-address
+pe-section  name  (one row per section)
+```
 
 Open the case and click the **Notes** tab (sticky-note icon). You will see:
 
@@ -120,8 +149,9 @@ Click **Analyze & Push to MISP**. The module will:
 
 1. Re-run Reverify analysis on the selected file
 2. Create a MISP event with structured objects
-3. Append an updated note to the case with hashes and the MISP event URL
-4. Redirect to the case page with a flash message containing the MISP event link
+3. Sync all objects and attributes back into the case's **MISP tab**
+4. Append an updated note to the case with hashes and the MISP event URL
+5. Redirect to the case page with a flash message containing the MISP event link
 
 ---
 
@@ -216,6 +246,21 @@ Format detection is based on **magic bytes**, not file extension — any file ca
 | `\x7fELF` | Linux/Android ELF (.elf, .so, no ext) | `file` + `elf` + `elf-section` ×N |
 | `\xfe\xed\xfa` / `\xce\xfa\xed\xfe` | Mach-O (macOS/iOS) | `file` only |
 | anything else | Raw / script / document | `file` + string-based attributes (full mode) |
+
+---
+
+## MISP tab sync
+
+When `push_to_misp` is enabled, the module performs a two-way operation:
+
+1. **Push** — creates a MISP event on the external MISP instance
+2. **Sync back** — immediately re-fetches the created event and writes every object
+   and attribute into Flowintel's own database, so the **MISP tab** of the case
+   shows the full structured data without any manual import step
+
+This uses the same internal mechanism as Flowintel's built-in `receive_misp_object` module
+(`misp_object_helper.create_misp_object` + `result_misp_object_module`), so the data
+appears identically to objects imported from MISP manually.
 
 ---
 
