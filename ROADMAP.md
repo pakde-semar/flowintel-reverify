@@ -1,10 +1,99 @@
 # Roadmap
 
+## Target architecture
+
+```
+                         FLOWINTEL CASE
+                               │
+                               ▼
+                         EVIDENCE INTAKE
+                               │
+                     preserve + hash
+                               │
+                               ▼
+                            ARTIFACT
+                               │
+                     fingerprint / metadata
+                               │
+                ┌──────────────┴───────────────┐
+                ▼                              ▼
+            REVERIFY                         YARA
+         deterministic facts             detections
+                │                              │
+                └──────────────┬───────────────┘
+                               ▼
+                        TRIAGE FINDINGS
+                               │
+                               ▼
+                     OBSERVABLE EXTRACTION
+                               │
+                    normalize + validate
+                               │
+                               ▼
+                         ENRICHMENT
+                               │
+             ┌─────────────────┼─────────────────┐
+             ▼                 ▼                 ▼
+          domain/IP           URL               hash
+             │                 │                 │
+          RDAP/DNS          Lookyloo        local corpus
+          ASN/PDNS          redirects       TLSH/ssdeep
+             │                 │                 │
+             └─────────────────┼─────────────────┘
+                               ▼
+                         RELATIONSHIPS
+                               │
+                               ▼
+                       LOCAL CORRELATION
+                               │
+                               ▼
+                       ANALYST ASSESSMENT
+                               │
+                   ┌───────────┴───────────┐
+                   ▼                       ▼
+              insufficient              confirmed/
+                   │                   high-confidence
+                   ▼                       │
+                GHIDRA                     │
+                   │                       │
+              need proof?                  │
+                   │                       │
+                   ▼                       │
+                  angr                     │
+                   │                       │
+                   └──────────┬────────────┘
+                              ▼
+                       APPROVED IOC
+                              │
+                              ▼
+                             MISP
+                              │
+                         correlation
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+                  case               campaign
+                    │                   │
+                    └──────────┬────────┘
+                               ▼
+                         mitigation /
+                           advisory
+```
+
+---
+
 ## Done
 
-### Binary triage pipeline
-- Static analysis via Reverify — file type, architecture, hashes, sections, imports, strings, entry-point disassembly
+### Evidence intake
+- Flowintel case as the container for all evidence and findings
+- File upload with automatic hash computation (MD5, SHA1, SHA256)
+
+### Binary analysis (Reverify + YARA)
+- Static analysis — file type, architecture, sections, imports, strings, entry-point disassembly
 - YARA rule auto-generation from hashes + IOC strings, saved to case Notes
+- Analyst reviews and tunes the rule before deployment
+
+### Evidence distribution
 - MISP event creation with typed objects (`file`, `pe`, `elf`, section objects, IOC attributes)
 - MISP → Flowintel case MISP tab auto-sync
 - Mattermost notify_user module — task bell notification to `#flowintel-alerts`
@@ -12,21 +101,38 @@
 
 ---
 
+## In progress / next
+
+### Observable extraction & enrichment pipeline
+
+Extract observables from triage findings and enrich each type through dedicated sources:
+
+| Observable | Sources | Tools |
+|------------|---------|-------|
+| Domain / IP | RDAP, passive DNS, ASN lookup | — |
+| URL | Redirect chain, screenshot | Lookyloo |
+| Hash | Local corpus matching | TLSH, ssdeep |
+
+Output feeds into **local correlation** — relationships across cases and campaigns —
+before reaching analyst assessment.
+
+### Analyst assessment gate
+
+Two paths after findings are reviewed:
+
+- **Confirmed / high-confidence** → approved IOC → MISP
+- **Insufficient** → escalate to Ghidra (deep manual analysis) → angr (proof of exploitability) → approved IOC → MISP
+
+### MISP correlation → mitigation
+
+MISP correlates approved IOCs across cases and campaigns.
+Output: targeted mitigation or advisory per case / campaign.
+
+---
+
 ## Considering
 
-### Domain / IP / URL / hash enrichment pipeline
-
-A second pipeline running alongside the binary pipeline — for observable indicators
-that are not binary files.
-
-| Observable | Potential enrichment sources |
-|------------|------------------------------|
-| Domain | WHOIS, passive DNS, reputation |
-| IP | Geolocation, ASN, blacklist |
-| URL | Redirect chain, resolve, screenshot |
-| Hash | VirusTotal, MalwareBazaar, cross-reference to binary pipeline |
-
-**Goal:** make flowintel-reverify an **Incident Response enrichment framework** —
-a single entry point for all indicator types, not only binaries.
-
-Tools and integration mechanism inside Flowintel are still being evaluated.
+- Integration mechanism for enrichment sources inside Flowintel
+- Local corpus format for TLSH/ssdeep fuzzy hash matching
+- Lookyloo integration for URL analysis
+- How to represent relationships between observables inside Flowintel cases
