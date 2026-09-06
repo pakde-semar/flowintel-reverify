@@ -66,6 +66,57 @@ Five modules share the same Flowintel case as their container:
 
 ---
 
+## Post-assessment paths
+
+After `assess_case` records the analyst's decision, two downstream paths are available
+for cases that need deeper investigation:
+
+### needs-ghidra → Ghidra (manual decompilation)
+
+`assess_case` applies the `needs-ghidra` tag and sets status to **Request Review**.
+The analyst then opens the binary in [Ghidra](https://github.com/NationalSecurityAgency/ghidra)
+with the Flowintel case Notes as a guide:
+
+| What to bring | Where it comes from |
+|---------------|---------------------|
+| Binary file | Flowintel case → Files tab |
+| Hashes (MD5, SHA256) | `reverify_binary` Notes |
+| Suspicious strings + offsets | `reverify_binary` Notes |
+| IOCs (URLs, IPs, domains) | `reverify_binary` full-mode Notes |
+| Fuzzy match results | `enrich_observable` hash Notes |
+
+Ghidra confirms whether suspicious strings appear in reachable code paths,
+recovers the full call graph, and decompiles obfuscated logic into C pseudocode.
+When analysis is complete, the analyst adds findings to the case Notes and re-runs
+`assess_case` with `confirmed` or `false-positive`.
+
+### needs-angr → angr (symbolic execution)
+
+`assess_case` applies the `needs-angr` tag when `suggest_assessment` signals
+`angr_score ≥ 4` — typically after Ghidra has already confirmed a potential vulnerability
+and the analyst needs proof of exploitability.
+
+[angr](https://github.com/angr/angr) runs symbolic execution with Z3 constraint solving
+to determine whether a specific code path can be reached with a crafted input:
+
+```python
+import angr
+
+proj = angr.Project("sample.exe", auto_load_libs=False)
+# Explore paths toward the vulnerable address identified in Ghidra
+sm = proj.factory.simulation_manager()
+sm.explore(find=0xDEADBEEF, avoid=0xBADC0DE)
+
+if sm.found:
+    print("Exploitable — input:", sm.found[0].posix.dumps(0))
+```
+
+angr runs externally — the `needs-angr` decision in Flowintel is the handoff point.
+Findings (exploitability verdict, PoC input) are added to the case Notes and `assess_case`
+is re-run with `confirmed` to close the loop.
+
+---
+
 ## Binary triage pipeline
 
 A binary enters and exits as a structured case — with hashes, IOCs, a YARA detection rule,

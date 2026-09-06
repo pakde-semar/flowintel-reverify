@@ -639,7 +639,7 @@ Use when you want to alert a team member about a task inside Flowintel.
 The user receives a notification in `#flowintel-alerts`:
 
 ```
-**Wahyu**, your attention is required on a case.
+**Analyst**, your attention is required on a case.
 
 | Field        | Value                              |
 |--------------|------------------------------------|
@@ -660,6 +660,129 @@ MATTERMOST_WEBHOOK_URL = "https://<mattermost>/hooks/<token>"
 MATTERMOST_CHANNEL     = "flowintel-alerts"
 MATTERMOST_ENABLED     = True
 FLOWINTEL_URL          = "https://<flowintel>"
+```
+
+---
+
+## Workflow J — Ghidra deep analysis (needs-ghidra path)
+
+Use when `assess_case` has set the decision to `needs-ghidra` — automated triage found
+signals (obfuscation, injection APIs, KnownMalicious hash) that require manual decompilation
+to understand what the binary actually does.
+
+### What to bring into Ghidra
+
+All findings are already in the Flowintel case Notes from the automated pipeline:
+
+| Input | Source note |
+|-------|-------------|
+| Binary file | Flowintel case → Files tab |
+| MD5 / SHA256 | `reverify_binary` — Hashes section |
+| Suspicious strings + offsets | `reverify_binary` — Suspicious strings table |
+| IOCs (URLs, IPs, domains) | `reverify_binary` full-mode — IOC section |
+| Entry-point disassembly | `reverify_binary` full-mode — Disassembly section |
+| Fuzzy match candidates | `enrich_observable` hash note |
+| Assessment suggestion | `suggest_assessment` — scored signals table |
+
+### Workflow
+
+1. Open Ghidra → **File → Import File** → select the binary from the Flowintel Files tab
+2. Run auto-analysis (accept defaults)
+3. In the **Symbol Tree**, navigate to the entry point address from the `reverify_binary` note
+4. Cross-reference suspicious imports (e.g. `CreateRemoteThread`, `VirtualAlloc`) to find their callers
+5. For each suspicious string flagged by Reverify, use **Search → For Strings** to locate it
+   and confirm whether it appears in a reachable code path
+6. Use the **Decompiler** window to read C pseudocode for obfuscated routines
+
+### After analysis
+
+Add a Ghidra findings note to the case and re-run `assess_case`:
+
+```bash
+# IOCs confirmed — close case as confirmed (publishes MISP draft)
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "assess_case",
+    "payload": {
+      "decision": "confirmed",
+      "rationale": "Ghidra confirmed CreateRemoteThread is reachable from entry point. C2 URL recovered from decompiled string decryption routine."
+    }
+  }'
+
+# Vulnerability found — escalate to angr
+curl ... -d '{
+  "module": "assess_case",
+  "payload": {
+    "decision": "needs-angr",
+    "rationale": "Ghidra identified a stack buffer overflow at 0x4012A0. Exploitability not yet confirmed."
+  }
+}'
+```
+
+---
+
+## Workflow K — angr symbolic execution (needs-angr path)
+
+Use when `assess_case` has set the decision to `needs-angr` — Ghidra has confirmed
+a potential vulnerability and the analyst needs to determine whether it is exploitable
+and generate a proof of concept.
+
+### Prerequisites
+
+- angr installed: `pip install angr`
+- Ghidra analysis complete — you need the address of the vulnerable code path
+- Binary accessible on the analyst workstation
+
+### Workflow
+
+```python
+import angr
+
+proj = angr.Project("/path/to/sample.exe", auto_load_libs=False)
+
+# Address of vulnerable function identified in Ghidra
+VULN_ADDR  = 0x4012A0
+# Address of a safe exit / error handler to avoid
+AVOID_ADDR = 0x401500
+
+sm = proj.factory.simulation_manager()
+sm.explore(find=VULN_ADDR, avoid=AVOID_ADDR)
+
+if sm.found:
+    state = sm.found[0]
+    exploit_input = state.posix.dumps(0)
+    print("Exploitable")
+    print("PoC input (hex):", exploit_input.hex())
+else:
+    print("No path found — may not be exploitable with this constraint set")
+```
+
+For ROP chain generation, use [angrop](https://github.com/angr/angrop):
+
+```python
+rop = proj.analyses.ROP()
+rop.find_gadgets()
+chain = rop.execve("/bin/sh")
+print(chain.payload_code())
+```
+
+### After analysis
+
+Add the exploitability verdict and PoC to the case Notes, then close with `assess_case`:
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "assess_case",
+    "payload": {
+      "decision": "confirmed",
+      "rationale": "angr confirmed exploitability via stack overflow at 0x4012A0. PoC input attached to case Notes. CVSS estimated 9.8 (RCE, no auth)."
+    }
+  }'
 ```
 
 ---

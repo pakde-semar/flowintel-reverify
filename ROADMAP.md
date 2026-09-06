@@ -150,9 +150,30 @@ Output: targeted mitigation or advisory per case / campaign.
 
 ---
 
+## Post-assessment tools (external, no module required)
+
+These tools are triggered by `assess_case` decisions. They run outside Flowintel —
+findings are added to case Notes manually and `assess_case` is re-run to close the loop.
+
+### Ghidra — triggered by `needs-ghidra`
+
+Full reverse engineering suite. The analyst opens the binary in Ghidra using the
+`reverify_binary` output (hashes, suspicious strings + offsets, entry-point disassembly)
+as a navigation guide. When analysis is complete, re-run `assess_case` with
+`confirmed` or `needs-angr`.
+
+### angr — triggered by `needs-angr`
+
+Symbolic execution framework. Used after Ghidra has confirmed a potential vulnerability.
+angr explores all reachable code paths with Z3 constraint solving to determine
+exploitability and generate a PoC input. When done, re-run `assess_case` with `confirmed`.
+
+---
+
 ## Considering
 
 - Domain/URL in local correlation (currently IP, hash, ASN only — domains produce too many false positives from free text)
 - Lookyloo private instance on dedicated VM (currently using CIRCL public — slow, no privacy)
-- angr integration for proof-of-exploitability after Ghidra triage
+- angr Flowintel module — automated angr analysis triggered from the `needs-angr` decision
+  (high complexity; angr symbolic execution is resource-intensive and binary-specific)
 - Relationship graph visualization inside Flowintel case (linked cases + shared observables)
