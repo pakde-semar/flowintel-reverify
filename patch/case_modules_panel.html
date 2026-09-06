@@ -50,8 +50,9 @@
       <button class="btn btn-sm btn-outline-secondary fir-mod-btn" onclick="firShow('suggest')">
         <i class="fa-solid fa-robot me-1"></i>suggest_assessment
       </button>
-      <button class="btn btn-sm btn-outline-warning fir-mod-btn" onclick="firShow('assess')">
-        <i class="fa-solid fa-gavel me-1"></i>assess_case
+      <button class="btn btn-sm btn-outline-warning fir-mod-btn" id="fir-btn-assess"
+              onclick="firShow('assess')" disabled title="Run suggest_assessment first">
+        <i class="fa-solid fa-lock me-1"></i>assess_case
       </button>
       <a href="/reverify/" class="btn btn-sm btn-outline-primary fir-mod-btn">
         <i class="fa-solid fa-upload me-1"></i>reverify_binary
@@ -222,41 +223,58 @@
 
       <!-- assess_case -->
       <div class="fir-form" id="fir-form-assess" style="display:none;">
-        <div class="alert alert-warning py-1 px-3 mb-2" style="font-size:.8rem;">
-          <i class="fa-solid fa-gavel me-1"></i><strong>Analyst decision gate.</strong>
-          <code>confirmed</code> will publish the MISP draft event.
-        </div>
-        <form method="post" action="/reverify/assess_case" class="fir-submit-form" id="fir-assess-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="case_id" value="{{ case.id }}">
-          <div class="row g-2">
-            <div class="col-md-7">
-              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Decision</label>
-              <div class="d-flex flex-wrap gap-2 mb-2">
-                <label class="btn btn-outline-success btn-sm fir-decision-btn">
-                  <input type="radio" name="decision" value="confirmed" class="d-none"> ✓ confirmed
-                </label>
-                <label class="btn btn-outline-primary btn-sm fir-decision-btn">
-                  <input type="radio" name="decision" value="needs-ghidra" class="d-none"> 🔍 needs-ghidra
-                </label>
-                <label class="btn btn-outline-warning btn-sm fir-decision-btn">
-                  <input type="radio" name="decision" value="needs-angr" class="d-none"> 🐛 needs-angr
-                </label>
-                <label class="btn btn-outline-secondary btn-sm fir-decision-btn">
-                  <input type="radio" name="decision" value="false-positive" class="d-none"> ✗ false-positive
-                </label>
-              </div>
-              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Rationale <small class="text-muted fw-normal">(optional)</small></label>
-              <textarea name="rationale" class="form-control form-control-sm" rows="2"
-                placeholder="Brief explanation — written to audit note"></textarea>
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-              <button type="submit" class="btn btn-warning btn-sm w-100 fir-run-btn" id="fir-assess-btn" disabled>
-                <i class="fa-solid fa-gavel me-1"></i>Record Decision
-              </button>
+
+        {# Gate: locked until suggest_assessment has run #}
+        <div id="fir-assess-gate" class="d-flex align-items-center gap-2 rounded px-3 py-3 mb-2"
+             style="background:#f8f9fa; border:1px dashed #adb5bd;">
+          <i class="fa-solid fa-lock text-muted fa-lg"></i>
+          <div>
+            <div class="fw-semibold text-muted" style="font-size:.85rem;">assess_case terkunci</div>
+            <div class="text-muted" style="font-size:.78rem;">
+              Jalankan <strong>suggest_assessment</strong> terlebih dahulu agar rekomendasi mesin tersedia
+              sebelum analyst merekam keputusan.
             </div>
           </div>
-        </form>
+        </div>
+
+        {# Form: hidden until gate is unlocked #}
+        <div id="fir-assess-unlocked" style="display:none;">
+          <div class="alert alert-warning py-1 px-3 mb-2" style="font-size:.8rem;">
+            <i class="fa-solid fa-gavel me-1"></i><strong>Analyst decision gate.</strong>
+            <code>confirmed</code> akan mempublish MISP draft event.
+          </div>
+          <form method="post" action="/reverify/assess_case" class="fir-submit-form" id="fir-assess-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="case_id" value="{{ case.id }}">
+            <div class="row g-2">
+              <div class="col-md-7">
+                <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Decision</label>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                  <label class="btn btn-outline-success btn-sm fir-decision-btn">
+                    <input type="radio" name="decision" value="confirmed" class="d-none"> ✓ confirmed
+                  </label>
+                  <label class="btn btn-outline-primary btn-sm fir-decision-btn">
+                    <input type="radio" name="decision" value="needs-ghidra" class="d-none"> 🔍 needs-ghidra
+                  </label>
+                  <label class="btn btn-outline-warning btn-sm fir-decision-btn">
+                    <input type="radio" name="decision" value="needs-angr" class="d-none"> 🐛 needs-angr
+                  </label>
+                  <label class="btn btn-outline-secondary btn-sm fir-decision-btn">
+                    <input type="radio" name="decision" value="false-positive" class="d-none"> ✗ false-positive
+                  </label>
+                </div>
+                <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Rationale <small class="text-muted fw-normal">(optional)</small></label>
+                <textarea name="rationale" class="form-control form-control-sm" rows="2"
+                  placeholder="Brief explanation — written to audit note"></textarea>
+              </div>
+              <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-warning btn-sm w-100 fir-run-btn" id="fir-assess-btn" disabled>
+                  <i class="fa-solid fa-gavel me-1"></i>Record Decision
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
       </div>
 
     </div><!-- /fir-forms -->
@@ -332,6 +350,18 @@
       document.getElementById('fir-suggest-label').textContent = meta.label;
       document.getElementById('fir-suggest-score').textContent = `score: ${score}`;
       document.getElementById('fir-suggest-ts').textContent   = ts.replace('T',' ');
+    }
+
+    // Unlock assess_case gate
+    const gate     = document.getElementById('fir-assess-gate');
+    const unlocked = document.getElementById('fir-assess-unlocked');
+    const btnAssess = document.getElementById('fir-btn-assess');
+    if (gate)     gate.style.display     = 'none';
+    if (unlocked) unlocked.style.display = 'block';
+    if (btnAssess) {
+      btnAssess.disabled = false;
+      btnAssess.title    = '';
+      btnAssess.innerHTML = '<i class="fa-solid fa-gavel me-1"></i>assess_case';
     }
   })();
 })();
