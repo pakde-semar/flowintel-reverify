@@ -18,11 +18,33 @@ Every finding is grounded in raw bytes. Every step produces evidence an analyst 
 
 ## What it does
 
-Five modules share the same Flowintel case as their container:
+Eight modules share the same Flowintel case as their container:
 
 ```
 ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
-│  reverify_binary     │  │  enrich_observable    │  │ correlate_observables│
+│  preserve_page       │  │  reverify_binary     │  │  enrich_observable    │
+│                      │  │                      │  │                      │
+│  Playwright snapshot │  │  Stage 1 — Static    │  │  Domain → RDAP+PDNS  │
+│  Screenshot (PNG)    │  │    analysis          │  │  IP     → RDAP+RIPE  │
+│  HTML source         │  │  Stage 2 — YARA rule │  │  URL    → Lookyloo   │
+│  External resources  │  │    generation        │  │  Hash   → CIRCL      │
+│  SHA-256 hashes      │  │  Stage 3 — MISP push │  │          lookup +    │
+│  Wayback Machine     │  │    + Mattermost      │  │          TLSH/ssdeep │
+│  submission          │  │                      │  │                      │
+│                      │  │                      │  │  Signals appended to │
+│  Run FIRST before    │  │                      │  │  each enrichment note│
+│  page is restored    │  │                      │  │                      │
+└──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+          │                          │                          │
+          └──────────────────────────┴──────────────────────────┘
+                                     ▼
+                            FLOWINTEL CASE
+                     (Notes · MISP tab · Tasks · Links · Files)
+                                     │
+          ┌──────────────────────────┴──────────────────────────┐
+          ▼                                                      ▼
+┌──────────────────────┐                            ┌──────────────────────┐
+│  correlate_observables│                            │                      │
 │                      │  │                      │  │                      │
 │  Stage 1 — Static    │  │  Domain → RDAP+PDNS  │  │  Auto-extract IPs,   │
 │    analysis          │  │  IP     → RDAP+RIPE  │  │  hashes, ASNs from   │
@@ -387,6 +409,7 @@ MISP credentials are read from the Flowintel database — no separate configurat
 - [MISP](https://github.com/MISP/MISP) instance connected to Flowintel *(for MISP push)*
 - Python 3.10+
 - System library: `libfuzzy-dev` (for ssdeep — installed automatically by `install.sh`)
+- Chromium (for `preserve_page` — installed automatically by `install.sh` via `playwright install chromium`)
 
 Python dependencies are listed in [`requirements.txt`](requirements.txt) and installed
 automatically by `install.sh`:
@@ -398,7 +421,8 @@ automatically by `install.sh`:
 | `python-tlsh` | TLSH fuzzy hashing |
 | `ssdeep` | ssdeep fuzzy hashing |
 | `pymisp` | MISP event creation and publishing |
-| `requests` | HTTP calls to RDAP, RIPE Stat, Lookyloo |
+| `requests` | HTTP calls to RDAP, RIPE Stat, Lookyloo, Wayback Machine |
+| `playwright` | Headless Chromium — screenshot + HTML capture for `preserve_page` |
 
 ---
 
@@ -439,6 +463,57 @@ export REVERIFY_VENV=/path/to/venv/lib/python3.12/site-packages
 
 ## Quick start
 
+### Preserve a defaced / injected page (web evidence)
+
+Run `preserve_page` **before** the page is restored or taken down:
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" -H "Content-Type: application/json" \
+  -d '{"module": "preserve_page", "payload": {"url": "https://situs-deface.go.id"}}'
+```
+
+What is captured and stored in the case:
+
+| Artefak | Disimpan di |
+|---------|------------|
+| Screenshot PNG (full page) | Files tab |
+| HTML source lengkap | Files tab |
+| SHA-256 screenshot + HTML | Notes tab |
+| Timestamp UTC | Notes tab |
+| Semua external scripts/resource | Notes tab |
+| Semua domain yang dikontaki browser | Notes tab |
+| Wayback Machine archive URL | Notes tab |
+
+Recommended flow for defacement, script injection, and XSS cases:
+
+```
+preserve_page(url)          ← run first, before page is restored
+enrich_observable(domain)   ← owner info
+enrich_observable(ip)       ← hosting provider
+correlate_observables()     ← link to other cases with same IP/domain
+assess_case(confirmed)      ← record decision
+```
+
+---
+
+### Run full pipeline via web UI (one click)
+
+Navigate to **Analyser → Push Case to MISP** (`/reverify/push_misp`),
+select a case and file, choose depth, then click **Run Full Pipeline**.
+
+This runs all four automated modules in sequence without leaving the browser:
+
+| Step | Module | What it does |
+|------|--------|-------------|
+| 1 | `reverify_binary` | Static analysis + MISP draft event |
+| 2 | `enrich_observable` | Enrich every hash, IP, domain, URL found in findings |
+| 3 | `correlate_observables` | Cross-case scan for shared observables |
+| 4 | `suggest_assessment` | Score 16 rules → recommendation |
+
+Each step's result appears as a flash message. The page redirects to the case
+when done — all Notes are written and ready for `assess_case`.
+
 ### Upload a binary (web UI)
 
 Navigate to **Analyser → Reverify Binary** in the sidebar.
@@ -462,6 +537,33 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
       "push_to_misp": true
     }
   }'
+```
+
+### Analyse DDoS source IPs via API
+
+```bash
+# Pass IPs explicitly or omit — module auto-extracts from case Notes
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "enrich_bulk_ips",
+    "payload": {
+      "ips": ["1.2.3.4", "5.6.7.8"],
+      "max_ips": 200
+    }
+  }'
+```
+
+### Analyse auth log for ATO / credential stuffing via API
+
+```bash
+# Pipe raw log content as JSON string
+LOG=$(sudo tail -n 5000 /var/log/auth.log | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d "{\"module\": \"parse_auth_log\", \"payload\": {\"log_text\": $LOG, \"threshold\": 3}}"
 ```
 
 ### Run observable enrichment via API
@@ -535,6 +637,20 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 
 ## Payload options
 
+### preserve_page
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `url` | string | — | URL to preserve (required) |
+| `wayback` | boolean | `true` | Submit to Wayback Machine |
+| `save_files` | boolean | `true` | Attach screenshot + HTML to case Files tab |
+
+Output written to case Notes: timestamp UTC, SHA-256 of screenshot + HTML, list of external
+scripts/resources loaded, all external domains contacted, Wayback Machine archive URL.
+Screenshot (PNG) and HTML source are attached to the case Files tab.
+
+---
+
 ### reverify_binary
 
 | Key | Type | Default | Description |
@@ -566,6 +682,22 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 ### suggest_assessment
 
 No payload required. Reads the current case Notes and scores against 16 built-in rules.
+
+### enrich_bulk_ips
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `ips` | list of strings | auto | IP addresses to enrich; auto-extracted from case Notes if omitted |
+| `max_ips` | integer | `100` | Cap on IPs enriched per run |
+
+### parse_auth_log
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `log_text` | string | — | Raw log content (**required**) |
+| `log_format` | `"nginx"` \| `"apache"` \| `"auth"` \| `"json"` \| `"auto"` | `"auto"` | Log format; auto-detected if `"auto"` |
+| `threshold` | integer | `5` | Minimum failed attempts to flag an IP as attacker |
+| `enrich_top` | integer | `20` | Enrich top N attacker IPs via RDAP/ASN |
 
 ### assess_case
 

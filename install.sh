@@ -70,6 +70,7 @@ else
     fi
 
     "$FLOWINTEL_VENV/bin/pip" install --quiet -r "$(dirname "$0")/requirements.txt"
+    "$FLOWINTEL_VENV/bin/playwright" install chromium
     ok "All dependencies installed"
 fi
 

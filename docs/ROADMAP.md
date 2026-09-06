@@ -107,11 +107,41 @@
 - YARA rule auto-generation from hashes + IOC strings, saved to case Notes
 - Analyst reviews and tunes the rule before deployment
 
+### Forensic page preservation (`preserve_page`)
+- Playwright headless Chromium — screenshot (PNG, full page) + HTML source capture
+- SHA-256 integrity hashes for screenshot and HTML (tamper-evident evidence)
+- External resource inventory — all scripts/iframes/images loaded from outside the page domain
+- Full network request log grouped by domain
+- Wayback Machine submission (optional, default on)
+- Screenshot + HTML attached to case Files tab; full report written to Notes
+- Use case: defacement (capture before restore), script injection (identify injector domain),
+  XSS (capture payload page + exfil domain)
+
+### Bulk IP enrichment for DDoS analysis (`enrich_bulk_ips`)
+- Accepts an explicit IP list or auto-extracts IPs from case Notes via regex
+- Enriches each IP via RDAP (network/country) + RIPE Stat (ASN/holder)
+- Groups results by ASN and country; flags suspicious ASNs (bulletproof hosting,
+  Tor exits, known botnet providers: Choopa, FranTech, Leaseweb, etc.)
+- Writes structured summary note: top ASNs table, country distribution, suspicious IP list
+- Capped at `max_ips` (default 100) to keep latency predictable on large DDoS sources
+
+### Auth log analysis for ATO / credential stuffing (`parse_auth_log`)
+- Parses nginx/apache combined log format, Linux `auth.log` (sshd), and JSON-per-line logs
+- Auto-detects format from first 20 lines; explicit override via `log_format` payload field
+- Extracts attacker IPs, failed counts, targeted usernames, user-agent variants
+- Flags IPs above a configurable `threshold` (default: 5 failed attempts)
+- Enriches top N attacker IPs via RDAP/ASN and emits ASN + holder in the summary note
+- Assessment signals: coordinated attack (≥10 flagged IPs), account enumeration (>50 unique usernames)
+- Writes full investigation note: stats header, top-attackers table, targeted usernames, bot UA detection
+
 ### Evidence distribution
 - MISP event creation with typed objects (`file`, `pe`, `elf`, section objects, IOC attributes)
 - MISP → Flowintel case MISP tab auto-sync
 - Mattermost notify_user module — task bell notification to `#flowintel-alerts`
 - Mattermost slash command `/flowintel <title>` → create Flowintel case
+- **Run Full Pipeline** button at `/reverify/push_misp` — one click runs reverify_binary →
+  enrich_observable → correlate_observables → suggest_assessment in sequence; results shown
+  as per-step flash messages, page redirects to case when done
 
 ### Observable enrichment (`enrich_observable`)
 

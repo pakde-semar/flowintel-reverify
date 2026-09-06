@@ -165,14 +165,55 @@ https://<your-flowintel>/reverify/push_misp
 - **File** — populates automatically once a case is chosen
 - **Analysis Depth** — quick or full
 
-### 3. Submit
+### 3. Choose action
 
-Click **Analyze & Push to MISP**. The module will:
+Two buttons are available:
 
-1. Re-run Stage 1 and Stage 2 on the selected file
-2. Create a MISP event with structured objects
-3. Sync all objects and attributes back into the case MISP tab
-4. Append an updated note with the MISP event URL
+| Button | What it runs |
+|--------|-------------|
+| **Analyze & Push to MISP** | `reverify_binary` only — re-analyzes and creates/updates the MISP event |
+| **Run Full Pipeline** | `reverify_binary` → `enrich_observable` → `correlate_observables` → `suggest_assessment` in one click |
+
+**Analyze & Push to MISP** is faster — use it when you only need to refresh the MISP event.
+
+**Run Full Pipeline** is the recommended path when starting enrichment on a case that has not been
+fully processed yet. Each step's result is shown as a flash message when the page redirects to the case.
+
+---
+
+## Workflow B2 — Run Full Pipeline (one-click enrichment)
+
+Use when you want to run all automated modules on an existing case in a single browser action,
+without running each module separately from the Analyser tab.
+
+### Steps
+
+1. Navigate to **Analyser → Push Case to MISP** (`/reverify/push_misp`)
+2. Select the case and file
+3. Choose **Analysis Depth** (full recommended for IOC extraction)
+4. Click **Run Full Pipeline**
+
+### What runs
+
+| Step | Module | Notes |
+|------|--------|-------|
+| 1 | `reverify_binary` | Static analysis + MISP draft event created |
+| 2 | `enrich_observable` | MD5 + SHA256 always enriched; IPs, domains, URLs extracted from findings (full mode) |
+| 3 | `correlate_observables` | Auto-extracts from Notes, scans all other cases |
+| 4 | `suggest_assessment` | Reads all Notes, outputs scored recommendation |
+
+### Result
+
+Each step appends a flash message:
+
+```
+✓ reverify_binary — MISP event: https://<misp>/events/view/2125
+✓ enrich_observable — 3 enriched
+✓ correlate_observables — 0 case overlap(s)
+✓ suggest_assessment → needs-ghidra
+```
+
+The page redirects to the case. All Notes are written and ready for `assess_case`.
 
 ---
 
@@ -814,6 +855,121 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 
 ---
 
+## Workflow L — Preserve a defaced / injected / XSS page
+
+Use **immediately** when you discover a defaced, script-injected, or XSS-exploited page —
+before the admin restores or takes down the site. `preserve_page` captures forensic
+evidence using a headless Chromium browser and stores it permanently in the case.
+
+### Run
+
+```bash
+curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
+  -H "X-API-KEY: <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "preserve_page",
+    "payload": {
+      "url": "https://situs-deface.go.id",
+      "wayback": true,
+      "save_files": true
+    }
+  }'
+```
+
+### What is captured
+
+| Artefak | Disimpan di | Keterangan |
+|---------|------------|------------|
+| Screenshot PNG (full page) | Files tab | Bukti visual kondisi saat ini |
+| HTML source lengkap | Files tab | Untuk analisis script injeksi |
+| SHA-256 screenshot | Notes tab | Bukti integritas — tidak bisa dipalsukan |
+| SHA-256 HTML | Notes tab | Bukti integritas |
+| Timestamp UTC | Notes tab | Waktu capture resmi |
+| External scripts/resources | Notes tab | **Kritis untuk injeksi** — domain mana yang load script |
+| Semua domain dikontaki | Notes tab | Seluruh network activity saat halaman dibuka |
+| Wayback Machine URL | Notes tab | Arsip publik permanen |
+
+### Note written to case
+
+```
+## Preserve: `https://situs-deface.go.id`
+
+| Field | Value |
+|-------|-------|
+| Timestamp (UTC) | `2026-09-06 09:16:33 UTC` |
+| Page title | Hacked by XYZ |
+| Final URL | `https://situs-deface.go.id/` |
+| HTML SHA-256 | `7b6cd9a1d881c4a...` |
+| Screenshot SHA-256 | `421c19fc4b60588...` |
+| Screenshot file | `bce410fd-....png` (Files tab) |
+| HTML source file | `ae5a0e6c-....html` (Files tab) |
+| Wayback Machine | https://web.archive.org/web/2026.../https://situs-deface.go.id |
+
+### External scripts / resources (2)
+
+⚠️ These resources are loaded from outside the page domain — review for injected content:
+
+- `https://cdn-slot88.xyz/js/inject.js`
+- `https://track.ads-hidden.com/pixel.gif`
+
+### All external domains contacted (3)
+
+- `cdn-slot88.xyz` — 4 request(s)
+- `track.ads-hidden.com` — 1 request(s)
+- `fonts.googleapis.com` — 2 request(s)
+```
+
+### Response
+
+```json
+{
+  "url": "https://situs-deface.go.id",
+  "timestamp": "2026-09-06 09:16:33 UTC",
+  "title": "Hacked by XYZ",
+  "final_url": "https://situs-deface.go.id/",
+  "html_sha256": "7b6cd9a1d881c4...",
+  "screenshot_sha256": "421c19fc4b60...",
+  "external_scripts": ["https://cdn-slot88.xyz/js/inject.js"],
+  "total_requests": 7,
+  "wayback": {"url": "https://web.archive.org/save/https://situs-deface.go.id"},
+  "screenshot_uuid": "bce410fd-f862-40d7-bcc0-71183e1eb4cc",
+  "html_uuid": "ae5a0e6c-1dfe-432e-b920-640fd6c4b9cb"
+}
+```
+
+### Recommended flow per case type
+
+**Defacement:**
+```
+preserve_page(url)          ← sebelum situs dipulihkan
+enrich_observable(domain)   ← pemilik situs korban
+enrich_observable(ip)       ← hosting provider → kontak untuk takedown
+correlate_observables()     ← apakah attacker ini pernah deface situs lain
+assess_case(confirmed)
+```
+
+**Script injection (judi/porno):**
+```
+preserve_page(url)                          ← tangkap halaman + daftar external scripts
+enrich_observable(domain injector)          ← siapa di balik cdn-slot88.xyz
+enrich_observable(ip injector)              ← hosting attacker
+enrich_observable(domain korban)            ← pemilik situs yang terinjeksi
+correlate_observables()                     ← satu IP bisa injeksi banyak situs
+assess_case(confirmed)
+```
+
+**XSS:**
+```
+preserve_page(url_with_payload)             ← tangkap halaman + exfil domain
+enrich_observable(domain situs rentan)      ← untuk responsible disclosure
+enrich_observable(domain exfil attacker)    ← tujuan data dicuri
+correlate_observables()
+assess_case(confirmed)
+```
+
+---
+
 ## Depth options
 
 | Depth | What runs | YARA strings source |
@@ -905,3 +1061,196 @@ MISP credentials are read directly from the Flowintel database — no manual con
 The module uses the first available `Connector_Instance` and its associated API key.
 
 Ensure your Flowintel instance has a MISP connector configured under **Connectors**.
+
+---
+
+## Workflow M — DDoS source analysis (`enrich_bulk_ips`)
+
+**Use case:** server or network receives a volumetric attack; you have a list of source IPs
+from netflow or access logs and need to quickly identify origin ASNs, flag bulletproof hosting,
+and write a structured summary for the case.
+
+### Payload
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ips` | list | auto | IP strings to enrich. If omitted, auto-extracted from case Notes (regex) |
+| `max_ips` | integer | 100 | Cap on IPs enriched per run |
+
+### Quick start
+
+```bash
+curl -s -X POST https://flowintel.iww.web.id/modules/analyze/enrich_bulk_ips \
+  -H "Content-Type: application/json" \
+  -d '{
+    "case_id": 42,
+    "payload": {
+      "ips": ["1.2.3.4", "5.6.7.8", "9.10.11.12"],
+      "max_ips": 200
+    }
+  }'
+```
+
+Or leave `ips` out — the module automatically extracts every IP from case Notes.
+
+### What it produces
+
+Note appended to case:
+
+```
+## Bulk IP Enrichment
+
+**Input:** 87 IPs | **Enriched:** 85 | **Skipped (private/invalid):** 2 | **Suspicious ASNs:** 3
+
+### Top ASNs (12 unique)
+
+| ASN | Holder | IPs | Country | Flag |
+|-----|--------|-----|---------|------|
+| AS205100 | F3 Netze e.V. | 41 | DE | ⚠️ SUSPICIOUS |
+| AS20473 | Choopa LLC | 18 | US | ⚠️ SUSPICIOUS |
+...
+
+### Country distribution (9 countries)
+
+| Country | IPs |
+|---------|-----|
+| DE | 41 |
+| US | 23 |
+...
+
+### Suspicious IPs (7)
+
+⚠️ These IPs belong to ASNs associated with botnets, bulletproof hosting, or Tor exits:
+
+- `1.2.3.4` — F3 Netze e.V.
+- `5.6.7.8` — Choopa LLC
+```
+
+### Response JSON
+
+```json
+{
+  "total_input": 87,
+  "public_ips": 85,
+  "enriched": 85,
+  "skipped_private": 2,
+  "unique_asns": 12,
+  "unique_countries": 9,
+  "suspicious_count": 7,
+  "top_asns": [
+    {"asn": "205100", "holder": "F3 Netze e.V.", "ip_count": 41},
+    {"asn": "20473",  "holder": "Choopa LLC",    "ip_count": 18}
+  ]
+}
+```
+
+### Recommended follow-up
+
+- Run `correlate_observables` — links cases sharing the same attacker ASNs
+- Run `suggest_assessment` — scores the case based on enrichment signals
+- Export suspicious IPs to firewall blocklist or MISP feed
+
+---
+
+## Workflow N — Account takeover / credential stuffing (`parse_auth_log`)
+
+**Use case:** web or SSH service reports unusual failed login volume; analyst pastes raw log
+content into the payload and the module parses it, identifies attacker IPs, targeted accounts,
+and enriches the top offenders via RDAP/ASN.
+
+### Supported log formats (auto-detected)
+
+| Format | Detection | Example line |
+|--------|-----------|--------------|
+| `nginx` / `apache` | Combined Log Format regex | `1.2.3.4 - - [06/Sep/2026:10:00:00 +0000] "POST /login HTTP/1.1" 401 ...` |
+| `auth` | sshd `Failed password` regex | `Sep  6 10:00:01 host sshd[1234]: Failed password for root from 1.2.3.4 port 55432 ssh2` |
+| `json` | First line parses as JSON | `{"ip":"1.2.3.4","status":401,"path":"/login","user":"admin"}` |
+
+### Payload
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `log_text` | string | — | Raw log content (**required**) |
+| `log_format` | string | `auto` | `nginx` \| `apache` \| `auth` \| `json` \| `auto` |
+| `threshold` | integer | 5 | Min failed attempts to flag IP as attacker |
+| `enrich_top` | integer | 20 | Enrich top N IPs via RDAP/ASN |
+
+### Quick start — SSH auth.log
+
+```bash
+LOG=$(sudo tail -n 5000 /var/log/auth.log | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+curl -s -X POST https://flowintel.iww.web.id/modules/analyze/parse_auth_log \
+  -H "Content-Type: application/json" \
+  -d "{\"case_id\": 43, \"payload\": {\"log_text\": $LOG, \"threshold\": 3}}"
+```
+
+### Quick start — nginx access.log
+
+```bash
+LOG=$(sudo tail -n 10000 /var/log/nginx/access.log | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+curl -s -X POST https://flowintel.iww.web.id/modules/analyze/parse_auth_log \
+  -H "Content-Type: application/json" \
+  -d "{\"case_id\": 43, \"payload\": {\"log_text\": $LOG, \"log_format\": \"nginx\"}}"
+```
+
+### What it produces
+
+Note appended to case:
+
+```
+## Auth Log Analysis
+
+| Field | Value |
+|-------|-------|
+| Parsed at (UTC) | `2026-09-06 10:30:00 UTC` |
+| Log format | `auth` |
+| Total lines | 5000 |
+| Failed auth events | 412 |
+| Unique attacker IPs | 38 |
+| IPs above threshold (≥5 fails) | 14 |
+| Unique targeted usernames | 23 |
+
+### Top attacker IPs (≥5 failed attempts)
+
+| IP | Attempts | ASN | Holder | Country | UA variants |
+|----|----------|-----|--------|---------|-------------|
+| `1.2.3.4` | 187 | AS20473 | Choopa LLC | US | 0 |
+| `5.6.7.8` | 94  | AS205100 | F3 Netze | DE | 0 |
+
+### Most targeted usernames / paths
+
+| Username / Path | Attempts |
+|----------------|----------|
+| `root` | 201 |
+| `admin` | 87 |
+| `ubuntu` | 44 |
+
+### Assessment signals
+
+- ⚠️ Top attacker `1.2.3.4` made **187** failed attempts (AS20473 Choopa LLC)
+- ⚠️ **14 IPs** above threshold — likely coordinated credential stuffing
+```
+
+### Response JSON
+
+```json
+{
+  "total_lines": 5000,
+  "log_format": "auth",
+  "failed_events": 412,
+  "unique_ips": 38,
+  "attackers_above_threshold": 14,
+  "unique_users": 23,
+  "top_attackers": [
+    {"ip": "1.2.3.4", "attempts": 187, "asn": "20473", "holder": "Choopa LLC"},
+    {"ip": "5.6.7.8", "attempts": 94,  "asn": "205100", "holder": "F3 Netze"}
+  ]
+}
+```
+
+### Recommended follow-up
+
+- Feed attacker IPs to `enrich_bulk_ips` for full ASN grouping
+- Run `correlate_observables` — matches attacker IPs against other cases
+- Blocklist top N IPs at firewall / fail2ban level
+- Check targeted usernames against recent data-breach dumps (HIBP / DeHashed)
