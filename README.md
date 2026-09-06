@@ -12,7 +12,7 @@ Every finding is grounded in raw bytes. Every step produces evidence an analyst 
 
 - **[WORKFLOW.md](docs/WORKFLOW.md)** — end-to-end usage: upload, MISP push, Mattermost integration, observable enrichment, API automation
 - **[COMPARISON.md](docs/COMPARISON.md)** — Reverify · Ghidra · angr · YARA: when to use each, how they fit together
-- **[ROADMAP.md](ROADMAP.md)** — what is done and what is being considered next
+- **[ROADMAP.md](docs/ROADMAP.md)** — what is done and what is being considered next
 
 ---
 
