@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # flowintel-reverify installer
-# Installs the reverify_binary analyze module, web UI blueprint, and sidebar link
+# Installs all analyze modules, web UI blueprint, and sidebar link
 # into a running Flowintel instance.
 #
 # Usage:
@@ -10,7 +10,7 @@
 #   FLOWINTEL_DIR   Path to Flowintel root          (default: /opt/flowintel)
 #   FLOWINTEL_VENV  Path to Flowintel Python venv   (default: $FLOWINTEL_DIR/env)
 #   SKIP_PATCH      Set to 1 to skip case_api patch (default: 0)
-#   SKIP_REVERIFY   Set to 1 to skip reverify pip install (default: 0)
+#   SKIP_DEPS       Set to 1 to skip pip/apt dependency install (default: 0)
 
 set -euo pipefail
 
@@ -18,7 +18,7 @@ set -euo pipefail
 FLOWINTEL_DIR="${FLOWINTEL_DIR:-/opt/flowintel}"
 FLOWINTEL_VENV="${FLOWINTEL_VENV:-$FLOWINTEL_DIR/env}"
 SKIP_PATCH="${SKIP_PATCH:-0}"
-SKIP_REVERIFY="${SKIP_REVERIFY:-0}"
+SKIP_DEPS="${SKIP_DEPS:-0}"
 
 APP_DIR="$FLOWINTEL_DIR/app"
 MODULE_DIR="$APP_DIR/modules/analyze"
@@ -52,27 +52,35 @@ if [ ! -f "$CASE_API" ]; then
     exit 1
 fi
 
-# ── Step 1: Install reverify into Flowintel venv ──────────────────────────────
-if [ "$SKIP_REVERIFY" = "1" ]; then
-    warn "Skipping reverify installation (SKIP_REVERIFY=1)"
+# ── Step 1: Install Python dependencies ──────────────────────────────────────
+if [ "$SKIP_DEPS" = "1" ]; then
+    warn "Skipping dependency installation (SKIP_DEPS=1)"
 else
-    echo "[1/5] Installing reverify into Flowintel venv..."
+    echo "[1/6] Installing Python dependencies into Flowintel venv..."
     if [ ! -f "$FLOWINTEL_VENV/bin/pip" ]; then
         err "Venv not found: $FLOWINTEL_VENV"
         echo "    Set FLOWINTEL_VENV or ensure the venv exists."
         exit 1
     fi
-    "$FLOWINTEL_VENV/bin/pip" install --quiet reverify
-    ok "reverify installed"
+
+    # ssdeep requires the system library
+    if ! dpkg -s libfuzzy-dev &>/dev/null; then
+        echo "       Installing libfuzzy-dev (required by ssdeep)..."
+        apt-get install -y -q libfuzzy-dev
+    fi
+
+    "$FLOWINTEL_VENV/bin/pip" install --quiet -r "$(dirname "$0")/requirements.txt"
+    ok "All dependencies installed"
 fi
 
-# ── Step 2: Install analyze module ────────────────────────────────────────────
-echo "[2/5] Installing reverify_binary module..."
+# ── Step 2: Install analyze modules ───────────────────────────────────────────
+echo "[2/6] Installing analyze modules..."
 mkdir -p "$MODULE_DIR"
-cp analyze/reverify_binary.py "$MODULE_DIR/"
-# Create __init__.py if it doesn't exist
+for mod in analyze/*.py; do
+    cp "$mod" "$MODULE_DIR/"
+done
 [ -f "$MODULE_DIR/__init__.py" ] || touch "$MODULE_DIR/__init__.py"
-ok "Module installed: $MODULE_DIR/reverify_binary.py"
+ok "Modules installed: $(ls analyze/*.py | xargs -n1 basename | tr '\n' ' ')"
 
 # ── Step 3: Install web UI + Mattermost hook blueprints ───────────────────────
 echo "[3/6] Installing reverify_tool and mattermost_hook blueprints..."
@@ -116,7 +124,7 @@ PYEOF
 fi
 
 # ── Step 4: Patch sidebar ─────────────────────────────────────────────────────
-echo "[4/5] Patching sidebar..."
+echo "[4/6] Patching sidebar..."
 if grep -q "reverify/push_misp" "$SIDEBAR"; then
     warn "Sidebar already patched — skipping"
 else
@@ -191,4 +199,6 @@ echo "  1. Set MATTERMOST_WEBHOOK_URL and MATTERMOST_ENABLED=True in conf/config
 echo "  2. Restart Flowintel:  systemctl restart flowintel"
 echo "  3. Open: https://<your-flowintel>/reverify/"
 echo "  4. Ensure a MISP connector is configured under Flowintel → Connectors"
+echo "  5. Modules available: reverify_binary, enrich_observable, correlate_observables,"
+echo "                        suggest_assessment, assess_case"
 echo ""
