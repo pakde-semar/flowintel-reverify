@@ -1,0 +1,287 @@
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     flowintel-reverify — Investigation Modules Panel
+     Injected above the case tabs (Notes / MISP / Files / ...)
+════════════════════════════════════════════════════════════════════════ -->
+<div class="case-core-style mt-3" id="fir-modules-panel" style="padding: .75rem 1rem;">
+  <div class="d-flex align-items-center gap-2 mb-2" style="cursor:pointer;" onclick="firTogglePanel()">
+    <i class="fa-solid fa-shield-halved text-primary"></i>
+    <span class="fw-semibold" style="font-size:.92rem;">Investigation Modules</span>
+    <span class="badge bg-primary" style="font-size:.65rem;">8 modules</span>
+    <i class="fa-solid fa-chevron-down ms-auto fir-chevron" id="fir-chevron" style="transition:transform .2s;"></i>
+  </div>
+
+  <div id="fir-panel-body" style="display:none;">
+
+    <!-- Module buttons row -->
+    <div class="d-flex flex-wrap gap-2 mb-3" id="fir-module-btns">
+      <button class="btn btn-sm btn-outline-success fir-mod-btn" onclick="firShow('preserve')">
+        <i class="fa-solid fa-camera me-1"></i>preserve_page
+      </button>
+      <button class="btn btn-sm btn-outline-info fir-mod-btn" onclick="firShow('bulk')">
+        <i class="fa-solid fa-network-wired me-1"></i>enrich_bulk_ips
+      </button>
+      <button class="btn btn-sm btn-outline-danger fir-mod-btn" onclick="firShow('authlog')">
+        <i class="fa-solid fa-file-lines me-1"></i>parse_auth_log
+      </button>
+      <button class="btn btn-sm btn-outline-secondary fir-mod-btn" onclick="firShow('enrich')">
+        <i class="fa-solid fa-magnifying-glass-plus me-1"></i>enrich_observable
+      </button>
+      <button class="btn btn-sm btn-outline-secondary fir-mod-btn" onclick="firShow('correlate')">
+        <i class="fa-solid fa-diagram-project me-1"></i>correlate_observables
+      </button>
+      <button class="btn btn-sm btn-outline-secondary fir-mod-btn" onclick="firShow('suggest')">
+        <i class="fa-solid fa-robot me-1"></i>suggest_assessment
+      </button>
+      <button class="btn btn-sm btn-outline-warning fir-mod-btn" onclick="firShow('assess')">
+        <i class="fa-solid fa-gavel me-1"></i>assess_case
+      </button>
+      <a href="/reverify/" class="btn btn-sm btn-outline-primary fir-mod-btn">
+        <i class="fa-solid fa-upload me-1"></i>reverify_binary
+      </a>
+    </div>
+
+    <!-- Forms (one shown at a time) -->
+    <div id="fir-forms">
+
+      <!-- preserve_page -->
+      <div class="fir-form" id="fir-form-preserve" style="display:none;">
+        <div class="alert alert-warning py-1 px-3 mb-2" style="font-size:.8rem;">
+          <i class="fa-solid fa-triangle-exclamation me-1"></i>Run before page is restored or taken down.
+        </div>
+        <form method="post" action="/reverify/preserve_page" class="fir-submit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">URL to preserve</label>
+              <input type="url" name="url" class="form-control form-control-sm font-monospace" required placeholder="https://situs-deface.go.id">
+            </div>
+            <div class="col-md-3 d-flex flex-column gap-1">
+              <div class="form-check form-switch form-check-sm">
+                <input class="form-check-input" type="checkbox" name="wayback" value="true" id="fir-wb" checked>
+                <label class="form-check-label" for="fir-wb" style="font-size:.8rem;">Wayback Machine</label>
+              </div>
+              <div class="form-check form-switch form-check-sm">
+                <input class="form-check-input" type="checkbox" name="save_files" value="true" id="fir-sf" checked>
+                <label class="form-check-label" for="fir-sf" style="font-size:.8rem;">Attach to Files tab</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <button type="submit" class="btn btn-success btn-sm w-100 fir-run-btn">
+                <i class="fa-solid fa-camera me-1"></i>Capture Page
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- enrich_bulk_ips -->
+      <div class="fir-form" id="fir-form-bulk" style="display:none;">
+        <form method="post" action="/reverify/enrich_bulk_ips" class="fir-submit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-7">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Source IP list <small class="text-muted fw-normal">(leave empty = auto-extract from Notes)</small></label>
+              <textarea name="ip_list" class="form-control form-control-sm font-monospace" rows="3"
+                placeholder="1.2.3.4&#10;5.6.7.8&#10;9.10.11.12"></textarea>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Max IPs</label>
+              <input type="number" name="max_ips" class="form-control form-control-sm" value="100" min="1" max="1000">
+            </div>
+            <div class="col-md-3">
+              <button type="submit" class="btn btn-info btn-sm w-100 fir-run-btn text-dark">
+                <i class="fa-solid fa-network-wired me-1"></i>Run enrich_bulk_ips
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- parse_auth_log -->
+      <div class="fir-form" id="fir-form-authlog" style="display:none;">
+        <form method="post" action="/reverify/parse_auth_log" class="fir-submit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <div class="row g-2">
+            <div class="col-md-8">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Log content</label>
+              <textarea name="log_text" class="form-control form-control-sm font-monospace" rows="4" required
+                placeholder="Paste nginx / apache / auth.log / JSON log lines here."></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Format</label>
+              <select name="log_format" class="form-select form-select-sm mb-2">
+                <option value="auto">auto-detect</option>
+                <option value="nginx">nginx</option>
+                <option value="apache">apache</option>
+                <option value="auth">sshd auth.log</option>
+                <option value="json">JSON per line</option>
+              </select>
+              <div class="row g-1 mb-2">
+                <div class="col-6">
+                  <label style="font-size:.75rem;" class="fw-semibold">Threshold</label>
+                  <input type="number" name="threshold" class="form-control form-control-sm" value="5" min="1">
+                </div>
+                <div class="col-6">
+                  <label style="font-size:.75rem;" class="fw-semibold">Enrich top N</label>
+                  <input type="number" name="enrich_top" class="form-control form-control-sm" value="20" min="1">
+                </div>
+              </div>
+              <button type="submit" class="btn btn-danger btn-sm w-100 fir-run-btn">
+                <i class="fa-solid fa-magnifying-glass me-1"></i>Parse Log
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- enrich_observable -->
+      <div class="fir-form" id="fir-form-enrich" style="display:none;">
+        <form method="post" action="/reverify/enrich_observable" class="fir-submit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-7">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Observable value</label>
+              <input type="text" name="value" class="form-control form-control-sm font-monospace" required
+                placeholder="domain.com  /  1.2.3.4  /  https://...  /  sha256hash">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Type</label>
+              <select name="obs_type" class="form-select form-select-sm">
+                <option value="auto">auto</option>
+                <option value="domain">domain</option>
+                <option value="ip">IP</option>
+                <option value="url">URL</option>
+                <option value="hash">hash</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <button type="submit" class="btn btn-secondary btn-sm w-100 fir-run-btn">
+                <i class="fa-solid fa-magnifying-glass-plus me-1"></i>Enrich
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- correlate_observables -->
+      <div class="fir-form" id="fir-form-correlate" style="display:none;">
+        <form method="post" action="/reverify/correlate_observables" class="fir-submit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-9">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Observables <small class="text-muted fw-normal">(optional — leave empty to auto-extract from Notes)</small></label>
+              <textarea name="observables" class="form-control form-control-sm font-monospace" rows="2"
+                placeholder="1.2.3.4, AS12345, sha256hash — or leave empty"></textarea>
+            </div>
+            <div class="col-md-3">
+              <button type="submit" class="btn btn-secondary btn-sm w-100 fir-run-btn">
+                <i class="fa-solid fa-diagram-project me-1"></i>Correlate
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- suggest_assessment -->
+      <div class="fir-form" id="fir-form-suggest" style="display:none;">
+        <form method="post" action="/reverify/suggest_assessment" class="fir-submit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <p class="text-muted mb-2" style="font-size:.82rem;">
+            Scans all case Notes, scores 16 signals, writes a machine recommendation to Notes.
+            <strong>Recommendation ≠ verdict.</strong>
+          </p>
+          <button type="submit" class="btn btn-secondary btn-sm fir-run-btn">
+            <i class="fa-solid fa-robot me-1"></i>Run suggest_assessment
+          </button>
+        </form>
+      </div>
+
+      <!-- assess_case -->
+      <div class="fir-form" id="fir-form-assess" style="display:none;">
+        <div class="alert alert-warning py-1 px-3 mb-2" style="font-size:.8rem;">
+          <i class="fa-solid fa-gavel me-1"></i><strong>Analyst decision gate.</strong>
+          <code>confirmed</code> will publish the MISP draft event.
+        </div>
+        <form method="post" action="/reverify/assess_case" class="fir-submit-form" id="fir-assess-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="case_id" value="{{ case.id }}">
+          <div class="row g-2">
+            <div class="col-md-7">
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Decision</label>
+              <div class="d-flex flex-wrap gap-2 mb-2">
+                <label class="btn btn-outline-success btn-sm fir-decision-btn">
+                  <input type="radio" name="decision" value="confirmed" class="d-none"> ✓ confirmed
+                </label>
+                <label class="btn btn-outline-primary btn-sm fir-decision-btn">
+                  <input type="radio" name="decision" value="needs-ghidra" class="d-none"> 🔍 needs-ghidra
+                </label>
+                <label class="btn btn-outline-warning btn-sm fir-decision-btn">
+                  <input type="radio" name="decision" value="needs-angr" class="d-none"> 🐛 needs-angr
+                </label>
+                <label class="btn btn-outline-secondary btn-sm fir-decision-btn">
+                  <input type="radio" name="decision" value="false-positive" class="d-none"> ✗ false-positive
+                </label>
+              </div>
+              <label class="form-label fw-semibold mb-1" style="font-size:.82rem;">Rationale <small class="text-muted fw-normal">(optional)</small></label>
+              <textarea name="rationale" class="form-control form-control-sm" rows="2"
+                placeholder="Brief explanation — written to audit note"></textarea>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <button type="submit" class="btn btn-warning btn-sm w-100 fir-run-btn" id="fir-assess-btn" disabled>
+                <i class="fa-solid fa-gavel me-1"></i>Record Decision
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+    </div><!-- /fir-forms -->
+  </div><!-- /fir-panel-body -->
+</div><!-- /fir-modules-panel -->
+
+<script>
+(function(){
+  function firTogglePanel(){
+    const body = document.getElementById('fir-panel-body');
+    const chev = document.getElementById('fir-chevron');
+    const open = body.style.display === 'none';
+    body.style.display = open ? 'block' : 'none';
+    chev.style.transform = open ? 'rotate(180deg)' : '';
+  }
+  window.firTogglePanel = firTogglePanel;
+
+  function firShow(id){
+    document.querySelectorAll('.fir-form').forEach(f => f.style.display='none');
+    document.querySelectorAll('.fir-mod-btn').forEach(b => b.classList.remove('active'));
+    const form = document.getElementById('fir-form-'+id);
+    if(form) form.style.display='block';
+  }
+  window.firShow = firShow;
+
+  // Decision radio
+  document.querySelectorAll('.fir-decision-btn').forEach(btn => {
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.fir-decision-btn').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      this.querySelector('input').checked = true;
+      const sb = document.getElementById('fir-assess-btn');
+      if(sb) sb.disabled = false;
+    });
+  });
+
+  // Spinner on submit
+  document.querySelectorAll('.fir-submit-form').forEach(form => {
+    form.addEventListener('submit', function(){
+      const btn = this.querySelector('.fir-run-btn');
+      if(btn){ btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Running…'; }
+    });
+  });
+})();
+</script>

@@ -91,9 +91,18 @@
         </div>
       </div>
 
-      <div class="d-grid">
-        <button type="submit" class="btn btn-primary btn-lg" id="submit_btn">
+      <!-- Action buttons -->
+      <div class="d-grid gap-2">
+        <button type="submit" formaction="{{ url_for('reverify_tool.push_misp_submit') }}"
+                class="btn btn-primary btn-lg" id="submit_btn">
             <i class="fa-solid fa-share-nodes me-2"></i>Analyze &amp; Push to MISP
+        </button>
+        <button type="submit" formaction="{{ url_for('reverify_tool.run_pipeline') }}"
+                class="btn btn-success btn-lg" id="pipeline_btn">
+            <i class="fa-solid fa-diagram-project me-2"></i>Run Full Pipeline
+            <small class="d-block fw-normal opacity-75" style="font-size:0.78rem; margin-top:1px;">
+                reverify → enrich → correlate → suggest_assessment
+            </small>
         </button>
       </div>
     </form>
@@ -138,10 +147,16 @@ function updateFiles() {
     sel.disabled = false;
 }
 
-document.getElementById('push_form').addEventListener('submit', function() {
-    const btn = document.getElementById('submit_btn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing & pushing…';
+document.getElementById('push_form').addEventListener('submit', function(e) {
+    const clicked = e.submitter;
+    if (clicked && clicked.id === 'pipeline_btn') {
+        clicked.disabled = true;
+        clicked.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running pipeline… (may take a minute)';
+    } else {
+        const btn = document.getElementById('submit_btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing & pushing…';
+    }
 });
 </script>
 {% endblock %}

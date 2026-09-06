@@ -7,10 +7,11 @@
 #   FLOWINTEL_DIR=/opt/flowintel bash install.sh
 #
 # Options (env vars):
-#   FLOWINTEL_DIR   Path to Flowintel root          (default: /opt/flowintel)
-#   FLOWINTEL_VENV  Path to Flowintel Python venv   (default: $FLOWINTEL_DIR/env)
-#   SKIP_PATCH      Set to 1 to skip case_api patch (default: 0)
-#   SKIP_DEPS       Set to 1 to skip pip/apt dependency install (default: 0)
+#   FLOWINTEL_DIR     Path to Flowintel root          (default: /opt/flowintel)
+#   FLOWINTEL_VENV    Path to Flowintel Python venv   (default: $FLOWINTEL_DIR/env)
+#   SKIP_PATCH        Set to 1 to skip case_api patch (default: 0)
+#   SKIP_DEPS         Set to 1 to skip pip/apt dependency install (default: 0)
+#   SKIP_CASE_PATCH   Set to 1 to skip case_view.html module panel patch (default: 0)
 
 set -euo pipefail
 
@@ -19,6 +20,7 @@ FLOWINTEL_DIR="${FLOWINTEL_DIR:-/opt/flowintel}"
 FLOWINTEL_VENV="${FLOWINTEL_VENV:-$FLOWINTEL_DIR/env}"
 SKIP_PATCH="${SKIP_PATCH:-0}"
 SKIP_DEPS="${SKIP_DEPS:-0}"
+SKIP_CASE_PATCH="${SKIP_CASE_PATCH:-0}"
 
 APP_DIR="$FLOWINTEL_DIR/app"
 MODULE_DIR="$APP_DIR/modules/analyze"
@@ -56,7 +58,7 @@ fi
 if [ "$SKIP_DEPS" = "1" ]; then
     warn "Skipping dependency installation (SKIP_DEPS=1)"
 else
-    echo "[1/6] Installing Python dependencies into Flowintel venv..."
+    echo "[1/7] Installing Python dependencies into Flowintel venv..."
     if [ ! -f "$FLOWINTEL_VENV/bin/pip" ]; then
         err "Venv not found: $FLOWINTEL_VENV"
         echo "    Set FLOWINTEL_VENV or ensure the venv exists."
@@ -75,7 +77,7 @@ else
 fi
 
 # ── Step 2: Install analyze modules ───────────────────────────────────────────
-echo "[2/6] Installing analyze modules..."
+echo "[2/7] Installing analyze modules..."
 mkdir -p "$MODULE_DIR"
 for mod in analyze/*.py; do
     cp "$mod" "$MODULE_DIR/"
@@ -84,14 +86,13 @@ done
 ok "Modules installed: $(ls analyze/*.py | xargs -n1 basename | tr '\n' ' ')"
 
 # ── Step 3: Install web UI + Mattermost hook blueprints ───────────────────────
-echo "[3/6] Installing reverify_tool and mattermost_hook blueprints..."
+echo "[3/7] Installing reverify_tool and mattermost_hook blueprints..."
 mkdir -p "$PLUGIN_DST"
 mkdir -p "$TEMPLATE_DST"
 cp flowintel_plugin/reverify_tool/__init__.py "$PLUGIN_DST/"
 cp flowintel_plugin/reverify_tool/views.py    "$PLUGIN_DST/"
-cp flowintel_plugin/templates/reverify_tool/index.html    "$TEMPLATE_DST/"
-cp flowintel_plugin/templates/reverify_tool/push_misp.html "$TEMPLATE_DST/"
-ok "Blueprint installed: $PLUGIN_DST"
+cp flowintel_plugin/templates/reverify_tool/*.html "$TEMPLATE_DST/"
+ok "Blueprint installed: $PLUGIN_DST ($(ls flowintel_plugin/templates/reverify_tool/*.html | wc -l) templates)"
 
 MATTERMOST_HOOK_DST="$APP_DIR/mattermost_hook"
 mkdir -p "$MATTERMOST_HOOK_DST"
@@ -125,7 +126,7 @@ PYEOF
 fi
 
 # ── Step 4: Patch sidebar ─────────────────────────────────────────────────────
-echo "[4/6] Patching sidebar..."
+echo "[4/7] Patching sidebar..."
 if grep -q "reverify/push_misp" "$SIDEBAR"; then
     warn "Sidebar already patched — skipping"
 else
@@ -149,7 +150,7 @@ else
 fi
 
 # ── Step 5: Install Mattermost notify_user module ─────────────────────────────
-echo "[5/6] Installing Mattermost notify_user module..."
+echo "[5/7] Installing Mattermost notify_user module..."
 NOTIFY_DIR="$APP_DIR/modules/notify_user"
 if [ -d "$NOTIFY_DIR" ]; then
     cp notify_user/mattermost.py "$NOTIFY_DIR/"
@@ -175,7 +176,7 @@ CONF
 fi
 
 # ── Step 6: Patch case_api.py ─────────────────────────────────────────────────
-echo "[6/6] Patching case_api.py..."
+echo "[6/7] Patching case_api.py..."
 if [ "$SKIP_PATCH" = "1" ]; then
     warn "Skipping case_api patch (SKIP_PATCH=1)"
 elif grep -q "run_analyze_module" "$CASE_API"; then
@@ -191,6 +192,37 @@ else
     fi
 fi
 
+# ── Step 7: Inject module panel into case_view.html ──────────────────────────
+CASE_VIEW="$APP_DIR/templates/case/case_view.html"
+echo "[7/7] Patching case_view.html (inline module panel)..."
+if [ "$SKIP_CASE_PATCH" = "1" ]; then
+    warn "Skipping case_view.html patch (SKIP_CASE_PATCH=1)"
+elif grep -q "fir-modules-panel" "$CASE_VIEW"; then
+    warn "case_view.html already patched — skipping"
+elif [ ! -f "$CASE_VIEW" ]; then
+    warn "case_view.html not found: $CASE_VIEW — skipping"
+else
+    PANEL_FILE="$(dirname "$0")/patch/case_modules_panel.html"
+    if [ ! -f "$PANEL_FILE" ]; then
+        warn "Patch file not found: $PANEL_FILE — skipping"
+    else
+        cp "$CASE_VIEW" "${CASE_VIEW}.bak"
+        python3 - "$CASE_VIEW" "$PANEL_FILE" << 'PYEOF'
+import sys
+case_view_path = sys.argv[1]
+panel_path     = sys.argv[2]
+marker = '<div class="case-core-style mt-4" id="case-main-nav">'
+content = open(case_view_path).read()
+panel   = open(panel_path).read()
+if marker not in content:
+    print("ERROR: injection marker not found in case_view.html", file=sys.stderr)
+    sys.exit(1)
+open(case_view_path, 'w').write(content.replace(marker, panel + "\n" + marker, 1))
+PYEOF
+        ok "case_view.html patched (backup: ${CASE_VIEW}.bak)"
+    fi
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}Installation complete.${NC}"
@@ -198,8 +230,7 @@ echo ""
 echo "Next steps:"
 echo "  1. Set MATTERMOST_WEBHOOK_URL and MATTERMOST_ENABLED=True in conf/config_module.py (optional)"
 echo "  2. Restart Flowintel:  systemctl restart flowintel"
-echo "  3. Open: https://<your-flowintel>/reverify/"
+echo "  3. Open any case — the Investigation Modules panel is above the Notes/MISP/Files tabs"
 echo "  4. Ensure a MISP connector is configured under Flowintel → Connectors"
-echo "  5. Modules available: reverify_binary, enrich_observable, correlate_observables,"
-echo "                        suggest_assessment, assess_case"
+echo "  5. Standalone forms also available at: /reverify/investigate"
 echo ""
