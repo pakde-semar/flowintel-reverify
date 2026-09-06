@@ -73,7 +73,8 @@ for cases that need deeper investigation:
 
 ### needs-ghidra → Ghidra (manual decompilation)
 
-`assess_case` applies the `needs-ghidra` tag and sets status to **Request Review**.
+`assess_case` applies the `needs-ghidra` tag, sets status to **Request Review**,
+and posts a 🔍 alert to `#flowintel-alerts` in Mattermost.
 The analyst then opens the binary in [Ghidra](https://github.com/NationalSecurityAgency/ghidra)
 with the Flowintel case Notes as a guide:
 
@@ -92,8 +93,10 @@ When analysis is complete, the analyst adds findings to the case Notes and re-ru
 
 ### needs-angr → angr (symbolic execution)
 
-`assess_case` applies the `needs-angr` tag when `suggest_assessment` signals
-`angr_score ≥ 4` — typically after Ghidra has already confirmed a potential vulnerability
+`assess_case` applies the `needs-angr` tag, sets status to **Request Review**,
+and posts a 🐛 alert to `#flowintel-alerts` in Mattermost.
+
+The decision is triggered when `suggest_assessment` signals `angr_score ≥ 4` — typically after Ghidra has already confirmed a potential vulnerability
 and the analyst needs proof of exploitability.
 
 [angr](https://github.com/angr/angr) runs symbolic execution with Z3 constraint solving

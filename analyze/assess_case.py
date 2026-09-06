@@ -8,7 +8,9 @@ applies a custom tag, updates case status, and writes a structured audit note.
 Decisions:
   confirmed      → publishes the MISP draft event (if one exists), applies Approved status
   needs-ghidra   → insufficient evidence; escalate to deep binary analysis
+                   sends Mattermost alert to #flowintel-alerts
   needs-angr     → vulnerability confirmed by Ghidra; need proof of exploitability
+                   sends Mattermost alert to #flowintel-alerts
   false-positive → findings dismissed; no further action
 
 Payload:
@@ -38,36 +40,44 @@ module_config = {
 
 _DECISIONS = {
     "confirmed": {
-        "tag_name"  : "confirmed",
-        "tag_color" : "#28a745",
-        "tag_icon"  : "check-circle",
-        "status_id" : 8,           # Approved
-        "label"     : "Confirmed",
+        "tag_name"   : "confirmed",
+        "tag_color"  : "#28a745",
+        "tag_icon"   : "check-circle",
+        "status_id"  : 8,           # Approved
+        "label"      : "Confirmed",
         "note_header": "CONFIRMED ✓ — IOCs verified. MISP event will be published.",
+        "notify"     : False,
     },
     "needs-ghidra": {
-        "tag_name"  : "needs-ghidra",
-        "tag_color" : "#fd7e14",
-        "tag_icon"  : "search",
-        "status_id" : 9,           # Request Review
-        "label"     : "Needs Ghidra",
+        "tag_name"   : "needs-ghidra",
+        "tag_color"  : "#fd7e14",
+        "tag_icon"   : "search",
+        "status_id"  : 9,           # Request Review
+        "label"      : "Needs Ghidra",
         "note_header": "ESCALATED → Ghidra — insufficient evidence from automated triage.",
+        "notify"     : True,
+        "next_step"  : "Open the binary in Ghidra using the hashes and suspicious strings from the case Notes as a navigation guide.",
+        "emoji"      : "🔍",
     },
     "needs-angr": {
-        "tag_name"  : "needs-angr",
-        "tag_color" : "#dc3545",
-        "tag_icon"  : "bug",
-        "status_id" : 9,           # Request Review
-        "label"     : "Needs angr",
+        "tag_name"   : "needs-angr",
+        "tag_color"  : "#dc3545",
+        "tag_icon"   : "bug",
+        "status_id"  : 9,           # Request Review
+        "label"      : "Needs angr",
         "note_header": "ESCALATED → angr — Ghidra confirmed a vulnerability; proof of exploitability required.",
+        "notify"     : True,
+        "next_step"  : "Run angr symbolic execution toward the vulnerable address identified in Ghidra to confirm exploitability.",
+        "emoji"      : "🐛",
     },
     "false-positive": {
-        "tag_name"  : "false-positive",
-        "tag_color" : "#6c757d",
-        "tag_icon"  : "times-circle",
-        "status_id" : 5,           # Rejected
-        "label"     : "False Positive",
+        "tag_name"   : "false-positive",
+        "tag_color"  : "#6c757d",
+        "tag_icon"   : "times-circle",
+        "status_id"  : 5,           # Rejected
+        "label"      : "False Positive",
         "note_header": "FALSE POSITIVE — findings dismissed; no further action.",
+        "notify"     : False,
     },
 }
 
@@ -301,6 +311,61 @@ def _publish_misp_event(case_id: int, db_session) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Mattermost escalation alert
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _notify_escalation(case_id: int, case_title: str, decision_key: str,
+                       meta: dict, analyst_name: str, rationale: str) -> bool:
+    """
+    Post an escalation alert to Mattermost when decision is needs-ghidra or needs-angr.
+    Returns True if the message was sent, False otherwise.
+    """
+    try:
+        import requests
+        import conf.config_module as Config
+    except ImportError:
+        return False
+
+    if not getattr(Config, "MATTERMOST_ENABLED", False):
+        return False
+    webhook_url = getattr(Config, "MATTERMOST_WEBHOOK_URL", "")
+    if not webhook_url:
+        return False
+
+    base_url = getattr(Config, "FLOWINTEL_URL",
+                       f"http://{getattr(Config, 'ORIGIN_URL', 'localhost')}").rstrip("/")
+    case_url  = f"{base_url}/case/{case_id}"
+    emoji     = meta.get("emoji", "⚠️")
+    next_step = meta.get("next_step", "")
+
+    lines = [
+        f"{emoji} **Case #{case_id} escalated: {meta['label']}**",
+        "",
+        f"| Field      | Value |",
+        f"|------------|-------|",
+        f"| **Case**   | [{case_title}]({case_url}) |",
+        f"| **Decision** | `{decision_key}` |",
+        f"| **Analyst** | {analyst_name} |",
+    ]
+    if rationale:
+        lines.append(f"| **Rationale** | {rationale} |")
+    if next_step:
+        lines += ["", f"**Next step:** {next_step}"]
+
+    payload = {"text": "\n".join(lines)}
+    channel = getattr(Config, "MATTERMOST_CHANNEL", "")
+    if channel:
+        payload["channel"] = channel
+
+    try:
+        requests.post(webhook_url, json=payload, timeout=10)
+        return True
+    except Exception as exc:
+        logger.warning("Mattermost escalation alert failed: %s", exc)
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Module entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -366,13 +431,21 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
                         misp_result=misp_result)
     _write_note(case_orm, note, db_session)
 
+    # 7. Send Mattermost escalation alert for needs-ghidra / needs-angr
+    notified = False
+    if meta.get("notify"):
+        case_title = getattr(case_orm, "title", None) or f"Case #{case_id}"
+        notified = _notify_escalation(case_id, case_title, decision_key,
+                                      meta, analyst_name, rationale)
+
     result = {
-        "case_id"  : case_id,
-        "decision" : decision_key,
-        "label"    : meta["label"],
-        "tag"      : meta["tag_name"],
-        "status_id": meta["status_id"],
-        "rationale": rationale,
+        "case_id"   : case_id,
+        "decision"  : decision_key,
+        "label"     : meta["label"],
+        "tag"       : meta["tag_name"],
+        "status_id" : meta["status_id"],
+        "rationale" : rationale,
+        "notified"  : notified,
     }
     if misp_result:
         result["misp"] = misp_result

@@ -486,14 +486,37 @@ curl -X POST https://<flowintel>/api/case/<case_id>/run_analyze_module \
 
 ### Decisions
 
-| `decision` | Custom tag | Case status | Next step |
-|------------|-----------|-------------|-----------|
-| `confirmed` | confirmed (green) | Approved | Publishes MISP draft event → distribute IOCs |
-| `needs-ghidra` | needs-ghidra (orange) | Request Review | Open binary in Ghidra |
-| `needs-angr` | needs-angr (red) | Request Review | Run angr symbolic execution |
-| `false-positive` | false-positive (grey) | Rejected | No further action |
+| `decision` | Custom tag | Case status | Mattermost alert | Next step |
+|------------|-----------|-------------|-----------------|-----------|
+| `confirmed` | confirmed (green) | Approved | — | Publishes MISP draft event → distribute IOCs |
+| `needs-ghidra` | needs-ghidra (orange) | Request Review | ✓ sent to `#flowintel-alerts` | Open binary in Ghidra |
+| `needs-angr` | needs-angr (red) | Request Review | ✓ sent to `#flowintel-alerts` | Run angr symbolic execution |
+| `false-positive` | false-positive (grey) | Rejected | — | No further action |
 
 Running `assess_case` again replaces the previous tag — only one assessment tag is active at a time.
+
+### Mattermost alert (needs-ghidra / needs-angr)
+
+When `MATTERMOST_ENABLED = True` in `conf/config_module.py`, a message is posted
+to `#flowintel-alerts` automatically:
+
+```
+🔍 Case #17 escalated: Needs Ghidra
+
+| Field      | Value                                        |
+|------------|----------------------------------------------|
+| Case       | [Suspicious dropper](https://<flowintel>/case/17) |
+| Decision   | `needs-ghidra`                               |
+| Analyst    | analyst@example.com                          |
+| Rationale  | Process injection APIs and high entropy...   |
+
+**Next step:** Open the binary in Ghidra using the hashes and suspicious strings
+from the case Notes as a navigation guide.
+```
+
+For `needs-angr` the emoji is 🐛 and the next step reads:
+*"Run angr symbolic execution toward the vulnerable address identified in Ghidra
+to confirm exploitability."*
 
 ### Response
 
@@ -508,7 +531,8 @@ Running `assess_case` again replaces the previous tag — only one assessment ta
 }
 ```
 
-When `decision` is `confirmed`, the response includes a `misp` field:
+The response always includes a `notified` field (`true` if a Mattermost alert was sent).
+When `decision` is `confirmed`, the response also includes a `misp` field:
 
 ```json
 {
