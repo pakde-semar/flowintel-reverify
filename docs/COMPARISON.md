@@ -1,290 +1,330 @@
-# Tool Comparisons
+# Tool Reference
 
-This page situates flowintel-reverify within a broader malware analysis ecosystem.
-Each tool occupies a distinct role — understanding where one ends and another begins
-determines how to build an effective pipeline, not which tool to pick over another.
+flowintel-reverify integrates several specialized tools, each covering a distinct role
+in the investigation lifecycle. This page documents what each tool does, where it fits
+in the framework, and when to use it.
 
----
-
-## 1. Ghidra vs Reverify
-
-[Ghidra](https://github.com/NationalSecurityAgency/ghidra) is a full reverse engineering
-suite developed by the NSA. It provides a GUI environment for deep, manual analysis of
-a single binary.
-
-### Feature comparison
-
-| Aspect | Ghidra | Reverify |
-|--------|--------|----------|
-| **Type** | Full RE suite | Static analysis toolkit |
-| **Interface** | Desktop GUI (Java) | CLI / Python library / API |
-| **Disassembly** | Full binary — all functions, call graph, cross-references | Entry point (configurable depth) |
-| **Decompiler** | Yes — C pseudocode output | No |
-| **String extraction** | Yes | Yes |
-| **Header parsing** | Yes — PE, ELF, Mach-O, and more | Yes — PE, ELF, Mach-O |
-| **Import / export listing** | Yes | Yes |
-| **Hash computation** | No (external tool required) | Yes — MD5, SHA1, SHA256 |
-| **Scripting** | Java / Python via Ghidra API | Native Python library |
-| **Pipeline automation** | Possible via headless mode — complex setup | Designed for it |
-| **Resource usage** | Heavy — 4 GB+ RAM, JDK required | Lightweight — pure Python |
-| **Flowintel / MISP integration** | None built-in | Native |
-| **Best for** | Deep manual analysis of one binary | Automated triage across many files |
-
-### When to use Ghidra
-
-- A human analyst needs to deeply understand what a binary does
-- You need to decompile obfuscated or packed code into readable C pseudocode
-- You are tracing execution flow or recovering a custom protocol
-- Reverify flagged suspicious indicators that warrant hours of manual investigation
-
-### When to use Reverify
-
-- You need fast, automated triage as the first stage of the pipeline
-- You are populating a Flowintel case or MISP event with structured findings
-- You need deterministic, reproducible output with no interpretation layer
-- Your server has limited resources (no JDK, limited RAM)
+The tools described here are **not a linear pipeline** — they support multiple
+investigation paths (binary, web, log/network) that converge into the same FlowIntel case.
 
 ---
 
-## 2. angr vs Reverify
+## Investigation / evidence modules
 
-[angr](https://github.com/angr/angr) is a binary analysis framework from UC Santa Barbara.
-Its core capability is symbolic execution — running a binary with symbolic variables, then
-using a Z3 SMT solver to reason about all possible execution paths simultaneously.
+### Reverify (used by `reverify_binary`)
 
-### Feature comparison
+[Reverify](https://github.com/2akouwu/reverify) is the static analysis core for binary
+and file evidence intake. It produces deterministic, structured findings from an unknown
+file in seconds, without prior knowledge of the sample.
 
-| Aspect | angr | Reverify |
-|--------|------|----------|
-| **Type** | Binary analysis framework | Static analysis toolkit |
-| **Core technique** | Symbolic / concolic execution | Static parsing |
-| **Disassembly** | Full — all reachable code paths | Entry point (configurable depth) |
-| **Symbolic execution** | Yes | No |
-| **Constraint solving** | Yes — Z3 SMT solver | No |
-| **Control flow graph** | Yes — full CFG recovery | No |
-| **Vulnerability discovery** | Yes | No |
-| **Exploit generation** | Yes (via angrop, rex) | No |
-| **Hash computation** | No | Yes — MD5, SHA1, SHA256 |
-| **String extraction** | No | Yes |
-| **IOC classification** | No | Yes |
-| **Pipeline automation** | Python library | Python library / CLI |
-| **Resource usage** | Heavy — symbolic execution is CPU/RAM intensive | Lightweight |
-| **Speed on a typical binary** | Minutes to hours | Seconds |
-| **Flowintel / MISP integration** | None built-in | Native |
-| **Best for** | Vulnerability research, CTF, exploit development | Automated triage and enrichment |
+**What it answers:** *What is this file, and what does it contain?*
 
-### When to use angr
+| Category | Details |
+|----------|---------|
+| Identity | File type, architecture, bitness |
+| Hashes | MD5, SHA1, SHA256 |
+| Structure | Sections, imports, exports |
+| Strings | All printable strings with offsets |
+| IOCs | URLs, IPs, domains, registry keys *(full depth)* |
+| Disassembly | Entry-point — first N instructions *(full depth)* |
 
-- You need to prove whether a binary contains an exploitable vulnerability
-- You are solving a CTF challenge that requires symbolic reasoning
-- You need to find what exact input drives execution to a specific code path
-- You are doing advanced security research on a specific binary
+Reverify output is a starting point for investigation — not a verdict. YARA matches and
+string extractions are **signals**, not confirmed indicators of malicious behavior.
 
-### When to use Reverify
+### YARA (auto-generated by `reverify_binary`)
 
-- You need fast, automated triage as the first stage of the pipeline
-- You are feeding structured findings into Flowintel, TheHive, or a SOAR platform
-- You need deterministic output without SMT solver overhead
-- Your pipeline must complete in seconds, not hours
+[YARA](https://github.com/VirusTotal/yara) is a pattern-matching engine. In this
+framework, `reverify_binary` auto-generates a YARA rule from hashes and IOC strings
+extracted from the sample. The analyst reviews, tunes, and deploys the rule.
 
----
+**What it answers:** *Do other files in this collection match this pattern?*
 
-## 3. YARA vs Reverify
-
-[YARA](https://github.com/VirusTotal/yara) is a pattern-matching engine from VirusTotal.
-It scans files against user-written rules to detect known malware families or behaviors.
-
-### Feature comparison
+```
+reverify_binary extracts hashes + IOC strings
+        ↓
+YARA rule auto-generated and saved to case Notes
+        ↓
+Analyst reviews and tunes the condition
+        ↓
+YARA scan over file collection
+        ↓
+Variant detection signal   (YARA match ≠ confirmed malware family)
+```
 
 | Aspect | YARA | Reverify |
 |--------|------|----------|
-| **Type** | Pattern-matching / signature engine | Static analysis toolkit |
-| **Core technique** | Rule-based scanning — byte patterns, strings, conditions | Binary parsing — headers, sections, imports, disassembly |
-| **Requires prior knowledge?** | Yes — useless without rules | No — analyzes any unknown file |
-| **Output** | Match / No match | Structured findings — type, hashes, IOCs, strings |
-| **Hash computation** | No | Yes — MD5, SHA1, SHA256 |
-| **String extraction** | No (strings are rule inputs, not outputs) | Yes |
-| **IOC classification** | No | Yes — URLs, IPs, domains, registry keys |
-| **Header parsing** | No | Yes |
-| **Speed** | Very fast (sub-second per file) | Fast (seconds per file) |
-| **Flowintel / MISP integration** | None built-in | Native |
-| **Best for** | Detecting known patterns across a file collection | Extracting unknown structure from a single sample |
+| Requires prior knowledge? | Yes — useless without rules | No — analyzes any unknown file |
+| Output | Match / No match | Structured findings |
+| Hash computation | No | Yes — MD5, SHA1, SHA256 |
+| String extraction | No (strings are rule inputs) | Yes |
+| IOC classification | No | Yes |
+| Speed | Sub-second per file | Seconds per file |
 
-### How they work together in this pipeline
+### Playwright / Chromium (used by `preserve_page`)
 
-YARA and Reverify are **complementary** — Reverify extracts, YARA detects.
-In this pipeline, Reverify generates the YARA rule automatically from its own findings:
+`preserve_page` uses [Playwright](https://playwright.dev/) headless Chromium to capture
+forensic evidence from a live web page before it is restored or taken down.
+
+**What it answers:** *What did this page contain and load at the moment of capture?*
 
 ```
-Incoming unknown binary
-        │
-        ▼
-┌──────────────────────────────────────────────┐
-│  Reverify  (Stage 1 + Stage 2)               │
-│                                              │
-│  • Extract hashes, strings, IOCs             │
-│  • Classify: URLs, IPs, domains, regkeys     │
-│  • Build YARA rule from hashes + IOC strings │
-│  • Save rule to case Notes                   │
-└──────────────────┬───────────────────────────┘
-                   │  analyst reviews and tunes the rule
-                   ▼
-┌──────────────────────────────────────────────┐
-│  YARA scan  (sub-second per file)            │
-│                                              │
-│  • Scan file collection for the new rule     │
-│  • Detect other variants of the same family  │
-└──────────────────────────────────────────────┘
+Compromised page (live)
+        ↓
+preserve_page
+        ↓
+Screenshot (PNG, full page)
+HTML source (full)
+SHA-256 integrity hashes
+External resource inventory
+Network request log (all domains contacted)
+Wayback Machine archive submission
+        ↓
+Evidence attached to case Files tab and Notes
 ```
 
-The analyst receives a ready-to-deploy rule. They tune the condition
-(e.g. `2 of ($s*)` instead of `any of ($s*)`) before scanning at scale.
+Capture must happen **before remediation** — once a defaced page is restored or a
+malicious injection is removed, the live evidence is gone.
 
 ---
 
-## 4. Observable enrichment sources
+## Cross-cutting investigation modules
 
-The `enrich_observable` module extends the pipeline beyond binary analysis to cover
-any IOC extracted from triage findings.
+### `enrich_observable` — observable context layer
 
-### CIRCL hashlookup vs local corpus fuzzy matching
+`enrich_observable` adds context to a normalized observable (domain, IP, URL, or hash)
+using open sources. It is the general enrichment path — one observable at a time,
+regardless of which intake module produced it.
+
+**What it answers:** *What is known about this observable?*
+
+| Observable | Sources |
+|------------|---------|
+| Domain | RDAP (registrar, nameservers), CIRCL Passive DNS (up to 20 records) |
+| IP | RDAP (network name, country, CIDR), RIPE Stat (ASN, prefix, holder) |
+| URL | Lookyloo — CIRCL public instance (redirect chain, IPs contacted, screenshot link) |
+| Hash | CIRCL hashlookup (known-good NSRL / known-bad malshare), TLSH + ssdeep local corpus fuzzy matching |
+
+Enrichment appends **assessment signals** to each note — but signals are not verdicts.
+
+For example:
+- `KnownMalicious` in CIRCL hashlookup → signal: `needs-ghidra`
+- No passive DNS history → signal: possibly new, private, or inactive domain
+- Long redirect chain → signal: manual inspection recommended
+
+#### CIRCL hashlookup vs local corpus fuzzy matching
 
 | Aspect | CIRCL hashlookup | TLSH + ssdeep (local corpus) |
 |--------|-----------------|------------------------------|
-| **Source** | Public database (NSRL + malshare + others) | Your own Flowintel uploads |
-| **What it tells you** | Is this hash known? Known malicious? | Are there structurally similar files in your corpus? |
-| **Requires file on disk?** | No — hash lookup only | Yes — file must be in corpus |
-| **API key required?** | No | No |
-| **Coverage** | Broad (millions of known files) | Narrow (only files you have uploaded) |
-| **Best for** | First-pass reputation check on any hash | Detecting recompiled variants across your own sample set |
+| Source | Public database (NSRL + malshare + others) | Your own FlowIntel uploads |
+| What it tells you | Is this hash known? Known malicious? | Are there structurally similar files in your corpus? |
+| Coverage | Broad (millions of known files) | Narrow (only files you have uploaded) |
+| Similarity ≠ identity | — | A fuzzy match suggests structural similarity, not the same file |
 
-Both run automatically when the `hash` type is enriched. If the hash is not in CIRCL hashlookup
-(novel or private malware), fuzzy matching still runs against the local corpus.
+#### URL enrichment — Lookyloo
 
-### URL enrichment — Lookyloo
+[Lookyloo](https://lookyloo.circl.lu) captures a full browser session — redirect chain,
+IPs contacted, screenshot. The framework uses the CIRCL public instance (no authentication
+required). If a capture times out, the UUID and capture link are saved to the note.
 
-[Lookyloo](https://lookyloo.circl.lu) captures a full browser session for a URL — recording
-the redirect chain, all IPs contacted, and a screenshot. This is used for URLs extracted from
-binary analysis or supplied directly.
+### `enrich_bulk_ips` — bulk IP analysis path
 
-The pipeline uses the CIRCL public instance (no authentication, no installation required).
-If a capture times out, the UUID and capture link are saved to the note so the analyst can
-check later.
+`enrich_bulk_ips` enriches a large set of IPs efficiently — designed for DDoS and
+network-incident source analysis where hundreds of IPs must be processed at once.
+
+**What it answers:** *Where do these source IPs come from, and are any from known
+high-risk infrastructure?*
+
+```
+Source IP set (from logs, netflow, or case Notes)
+        ↓
+enrich_bulk_ips (max_ips=100 default)
+        ↓
+RDAP → network name, country
+RIPE Stat → ASN, holder
+        ↓
+Grouped by ASN and country
+Suspicious infrastructure indicators flagged
+        ↓
+Structured summary note
+```
+
+ASN associations with Tor-related infrastructure, bulletproof hosting, or known botnet
+providers are flagged as **contextual indicators** — not definitive attribution.
+A suspicious-looking ASN may legitimately host many unrelated customers.
+
+This is distinct from `enrich_observable` (single observable, deeper enrichment with
+Lookyloo and CIRCL hashlookup) — `enrich_bulk_ips` is optimized for volume,
+using RDAP and RIPE Stat only.
+
+### `parse_auth_log` — authentication log analysis path
+
+`parse_auth_log` establishes a dedicated workflow for authentication abuse investigations.
+
+**What it answers:** *Which IPs failed authentication repeatedly, which accounts were targeted,
+and are any source IPs from high-risk infrastructure?*
+
+```
+Raw log content
+        ↓
+parse_auth_log (auto-detects format)
+        ↓
+Source IPs, fail counts, targeted usernames, user-agent patterns
+        ↓
+Top IP enrichment via RDAP/ASN (enrich_top=20 default)
+Suspicious infrastructure indicators
+        ↓
+Investigation signals and structured summary note
+```
+
+Supported log formats (auto-detected):
+
+| Format | Detection |
+|--------|-----------|
+| nginx / apache | Combined Log Format |
+| auth | Linux sshd auth.log (`Failed password for ... from IP`) |
+| json | JSON object per line |
+
+High fail counts, Tor ASNs, and large targeted-username sets are **investigation signals**,
+not confirmed attack verdicts. For example:
+
+- Many IPs above threshold → possible coordinated attempt, warrants investigation
+- Large username set → possible enumeration behavior, warrants investigation
+
+### `correlate_observables` — local cross-case correlation
+
+`correlate_observables` scans all FlowIntel case Notes in this instance for observables
+that appear in more than one case.
+
+**What it answers:** *Have we seen these observables in other cases?*
+
+Currently supported observable types for local correlation: **IP addresses, hashes, ASNs.**
+Domain and URL correlation are not currently implemented.
+
+```
+Shared observable found across two cases
+        ↓
+Case relationship created
+        ↓
+Correlation signal   (shared observable ≠ same campaign)
+```
+
+A correlation is a finding that warrants attention — it does not establish attribution
+between cases.
+
+### `suggest_assessment` — machine recommendation layer
+
+`suggest_assessment` scans all case Notes and scores them against 16 rule-based signals
+covering entropy, injection APIs, known-malicious hashes, vulnerability keywords,
+correlation hits, and more.
+
+**Output:** A scored recommendation table — one of: `confirmed`, `needs-ghidra`,
+`needs-angr`, `uncertain` — with per-signal reasoning.
+
+This is a machine recommendation, not a final verdict:
+
+```
+Automated investigation
+        ↓
+suggest_assessment
+        ↓
+MACHINE RECOMMENDATION
+        ↓
+        STOP
+        ↓
+ANALYST REVIEW   (assess_case)
+```
+
+The analyst is free to disagree with the recommendation.
+
+### `assess_case` — analyst decision gate
+
+`assess_case` is the explicit human decision boundary. No intelligence is published
+without an analyst decision here.
+
+| Decision | Outcome |
+|----------|---------|
+| `confirmed` | Status → Approved; colour-coded tag applied; MISP draft event published automatically |
+| `needs-ghidra` | Status → Request Review; tag applied; 🔍 Mattermost escalation alert sent |
+| `needs-angr` | Status → Request Review; tag applied; 🐛 Mattermost escalation alert sent |
+| `false-positive` | Status → Rejected; tag applied; MISP draft not published |
+
+All decisions write a timestamped audit note with the analyst's rationale.
 
 ---
 
-## 5. All tools together
+## External escalation tools
 
-Each tool occupies a distinct stage in the investigation lifecycle:
+### Ghidra
 
-```
-Incoming binary
-      │
-      ▼
-┌─────────────────────────────────────────────────────────┐
-│  Reverify  (automated, seconds)                         │
-│                                                         │
-│  Stage 1: file type, architecture, hashes,              │
-│           sections, imports, strings, IOCs              │
-│  Stage 2: YARA rule from hashes + IOC strings           │
-│  Stage 3: MISP event + Flowintel MISP tab               │
-└──────────────────────┬──────────────────────────────────┘
-                       │  IOCs extracted (domains, IPs, URLs, hashes)
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│  enrich_observable  (automated, seconds)                │
-│                                                         │
-│  Domain → RDAP + CIRCL Passive DNS                      │
-│  IP     → RDAP + RIPE Stat ASN                          │
-│  URL    → Lookyloo redirect chain + screenshot          │
-│  Hash   → CIRCL hashlookup + TLSH/ssdeep corpus        │
-│                                                         │
-│  ⚠️ Per-observable signals appended to each note        │
-└──────────────────────┬──────────────────────────────────┘
-                       │  IPs, hashes, ASNs now in case Notes
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│  correlate_observables  (automated, seconds)            │
-│                                                         │
-│  Auto-extract observables from current case Notes       │
-│  Scan Notes of all other cases for matching values      │
-│  Create case links for overlapping cases                │
-│  Write correlation summary to case Notes                │
-└──────────────────────┬──────────────────────────────────┘
-                       │  all enrichment + correlation notes in place
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│  suggest_assessment  (automated, seconds)               │
-│                                                         │
-│  Score 16 rules across case Notes:                      │
-│    entropy, injection APIs, KNOWN MALICIOUS,            │
-│    packer sections, vuln keywords, CVEs, ...            │
-│  Output: scored table + reasoning + next-step hint      │
-└──────────────────────┬──────────────────────────────────┘
-                       │  analyst reads suggestion + notes
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│  assess_case  (analyst records decision, seconds)       │
-│                                                         │
-│  confirmed      → Approved + tag (green)                │
-│                   publishes MISP draft event            │
-│  needs-ghidra   → Request Review + tag (orange)         │
-│                   🔍 Mattermost alert → #flowintel-alerts│
-│  needs-angr     → Request Review + tag (red)            │
-│                   🐛 Mattermost alert → #flowintel-alerts│
-│  false-positive → Rejected + tag (grey)                 │
-│  Writes timestamped audit note with rationale           │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-            ┌──────────┴──────────┐
-            ▼                     ▼
-┌────────────────────┐   ┌────────────────────────────────┐
-│  YARA  (seconds)   │   │  Ghidra  (hours)               │
-│                    │   │                                │
-│  Hunt for variants │   │  Deep manual analysis          │
-│  across file sets  │   │  Decompile, trace flow,        │
-│  using the         │   │  confirm IOCs from Reverify    │
-│  generated rule    │   │                                │
-└────────────────────┘   └──────────────────┬─────────────┘
-                                            │
-                                            │  exploitability needed?
-                                            ▼
-                         ┌────────────────────────────────┐
-                         │  angr  (hours to days)         │
-                         │                                │
-                         │  Symbolic execution            │
-                         │  Constraint solving via Z3     │
-                         │  Exploit / PoC generation      │
-                         └────────────────────────────────┘
-```
+[Ghidra](https://github.com/NationalSecurityAgency/ghidra) is a full reverse engineering
+suite for deep manual analysis of a binary. It is triggered by the `needs-ghidra`
+analyst decision.
 
-| Tool | Question it answers | Time | Entry point |
-|------|---------------------|------|-------------|
-| **Reverify** | *What is this file, and what does it contain?* | Seconds | Unknown file, no prior knowledge |
-| **enrich_observable** | *Are these IOCs known? What do they resolve to?* | Seconds | IOCs from triage or supplied directly |
-| **correlate_observables** | *Have we seen these observables before, in other cases?* | Seconds | Enriched case Notes |
-| **suggest_assessment** | *What does the evidence suggest the analyst should do?* | Seconds | All enrichment + correlation notes in place |
-| **assess_case** | *What is the analyst's final decision on this case?* | Seconds | After reviewing suggest_assessment output |
-| **YARA** | *How many other files match this pattern?* | Sub-second | Known IOCs or generated rule |
-| **Ghidra** | *What does this binary do?* | Hours | assess_case decision: needs-ghidra |
-| **angr** | *Can this binary be exploited, and how?* | Hours – days | assess_case decision: needs-angr |
+**What it answers:** *What does this binary actually do?*
+
+| Aspect | Ghidra | Reverify |
+|--------|--------|----------|
+| Disassembly | Full binary — all functions, call graph, cross-references | Entry point (configurable depth) |
+| Decompiler | Yes — C pseudocode output | No |
+| Resource usage | Heavy — 4 GB+ RAM, JDK required | Lightweight — pure Python |
+| Speed | Hours (manual) | Seconds (automated) |
+| FlowIntel integration | None built-in — runs externally | Native |
+
+Ghidra runs externally. Findings are added to case Notes manually, then `assess_case`
+is re-run.
+
+### angr
+
+[angr](https://github.com/angr/angr) is a binary analysis framework for symbolic
+execution and constraint solving. It is triggered by the `needs-angr` analyst decision —
+typically after Ghidra has confirmed a potential vulnerability.
+
+**What it answers:** *Can this binary be exploited, and with what input?*
+
+| Aspect | angr | Reverify |
+|--------|------|----------|
+| Core technique | Symbolic / concolic execution | Static parsing |
+| Constraint solving | Yes — Z3 SMT solver | No |
+| Vulnerability discovery | Yes | No |
+| Speed | Minutes to hours | Seconds |
+| FlowIntel integration | None built-in — runs externally | Native |
+
+angr runs externally. A native angr FlowIntel module is not currently implemented.
+Findings are added to case Notes and `assess_case` is re-run to close the loop.
+
+---
+
+## All modules together
+
+| Module / Tool | Question it answers | When to run |
+|---------------|---------------------|-------------|
+| `preserve_page` | What did this web page contain at capture time? | Before the page is restored or taken down |
+| `reverify_binary` | What is this file and what does it contain? | On any unknown file or binary |
+| `enrich_bulk_ips` | Where do these source IPs come from? | After receiving DDoS / network-incident source data |
+| `parse_auth_log` | Which IPs failed auth repeatedly and which accounts were targeted? | On authentication or access logs |
+| `enrich_observable` | What is known about this observable? | On any IP, domain, URL, or hash from findings |
+| `correlate_observables` | Have we seen these observables in other cases? | After enrichment |
+| `suggest_assessment` | What does the evidence suggest? | After enrichment and correlation |
+| `assess_case` | What is the analyst's decision? | After reviewing all findings |
+| YARA | How many other files match this pattern? | After the analyst tunes the generated rule |
+| Ghidra | What does this binary do? | After `needs-ghidra` decision |
+| angr | Can this binary be exploited? | After `needs-angr` decision |
 
 ---
 
 ## Summary
 
-> Use **Reverify** to triage an unknown file and generate structured evidence — hashes, IOCs, a YARA rule — in seconds.
->
-> Use **enrich_observable** to look up every IOC from triage against open sources — reputation, passive DNS, redirect chains, fuzzy matches — without leaving Flowintel. Per-observable signals are appended to each note immediately.
->
-> Use **correlate_observables** to find other cases in this instance that share the same infrastructure — linking cases that belong to the same campaign.
->
-> Use **suggest_assessment** to get a scored, rule-based recommendation before committing to a decision — 16 signals across entropy, injection APIs, known-malicious hashes, vulnerability keywords, and correlation hits.
->
-> Use **assess_case** to record the analyst's final decision, apply a colour-coded custom tag, update case status, and write an audit trail. `confirmed` publishes the MISP draft event automatically. `needs-ghidra` and `needs-angr` send an escalation alert to `#flowintel-alerts` in Mattermost.
->
-> Use **YARA** to hunt for variants across a file collection using the rule Reverify produced.
->
-> Use **Ghidra** to understand what a confirmed suspicious binary actually does.
->
-> Use **angr** to prove whether a binary can be exploited and to generate a proof of concept.
+FlowIntel is the investigation workspace. Every module writes into the same case —
+Notes, Files, Links, MISP tab — regardless of which intake path was used.
+
+Automation gathers evidence, extracts observables, enriches, correlates, and scores
+signals. The analyst reviews the assembled findings and decides at `assess_case`.
+Approved intelligence is published to MISP in a controlled, deliberate step.
+
+```
+Observable ≠ IOC
+Signal     ≠ Detection
+Detection  ≠ Verdict
+Correlation ≠ Attribution
+Machine Recommendation ≠ Analyst Assessment
+```

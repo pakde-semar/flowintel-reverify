@@ -1,56 +1,96 @@
-# Malware Triage & Observable Enrichment — Workflow Guide
+# Incident Investigation Workflow Guide
 
-End-to-end reference for both pipelines:
-binary triage (static analysis → YARA → evidence distribution)
-and observable enrichment (domain · IP · URL · hash).
+End-to-end reference for all investigation paths in flowintel-reverify.
+FlowIntel Case is the central investigation container — multiple evidence intake paths
+converge into the same observable enrichment, correlation, assessment, and
+intelligence-promotion model.
 
 ---
 
 ## Overview
 
 ```
-Mattermost                    Binary file / API          Observable / API
-    │                               │                          │
-    │  /flowintel <title>           │  upload or curl          │  curl
-    ▼                               ▼                          ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Flowintel Case                                                          │
-│                                                                          │
-│  ┌──────────────────────────────────┐  ┌───────────────────────────────┐│
-│  │  Binary triage pipeline          │  │  Observable enrichment         ││
-│  │                                  │  │                               ││
-│  │  Stage 1 — Static analysis       │  │  Domain → RDAP + CIRCL PDNS   ││
-│  │    file type, arch, hashes,      │  │  IP     → RDAP + RIPE Stat    ││
-│  │    sections, imports, strings,   │  │  URL    → Lookyloo (CIRCL)    ││
-│  │    IOC classification            │  │  Hash   → CIRCL hashlookup +  ││
-│  │                                  │  │          TLSH/ssdeep corpus   ││
-│  │  Stage 2 — YARA rule generation  │  │                               ││
-│  │    hashes + IOC strings → rule   │  │  No API key required          ││
-│  │    validated + saved to Notes    │  │  Results written to Notes     ││
-│  │                                  │  └───────────────────────────────┘│
-│  │  Stage 3 — Evidence distribution │                                   │
-│  │    MISP event + MISP tab sync    │                                   │
-│  │    Mattermost #flowintel-alerts  │                                   │
-│  └──────────────────────────────────┘                                   │
-└──────────────────────────────────────────────────────────────────────────┘
-           │                                         │
-           ▼                                         │
-┌──────────────────────┐                             │
-│  MISP Event          │                             │
-│  ├── file object     │◄────────────────────────────┘  (IOCs from enrichment
-│  ├── pe / elf object │                                  feed back to MISP)
-│  ├── pe-section ×N   │
-│  └── IOC attributes  │
-└──────────┬───────────┘
-           │ auto-sync back
-           ▼
-┌────────────────────────────────────────┐
-│  Flowintel Case — MISP tab             │
-│   ├── file object with all attributes  │
-│   ├── pe / elf object                  │
-│   └── pe-section / elf-section (×N)    │
-└────────────────────────────────────────┘
+         Mattermost             Binary / file        Web page       Log / network
+              │                       │                 │                │
+   /flowintel <title>           upload or curl      curl payload     curl payload
+              │                       │                 │                │
+              └───────────────────────┴─────────────────┴────────────────┘
+                                      │
+                               ┌──────▼──────┐
+                               │  FLOWINTEL  │
+                               │    CASE     │
+                               └──────┬──────┘
+                                      │
+           ┌──────────────────────────┼──────────────────────────┐
+           │                          │                          │
+           ▼                          ▼                          ▼
+    FILE / BINARY            WEB EVIDENCE               LOG / NETWORK
+           │                          │                          │
+    reverify_binary             preserve_page            ┌───────┴───────┐
+           │                          │            enrich_bulk_ips  parse_auth_log
+          YARA                        │                   │               │
+           │                          │                   │               │
+           └──────────────────────────┴───────────────────┴───────────────┘
+                                      │
+                              CASE FINDINGS
+                             (Notes · Files)
+                                      │
+                            OBSERVABLE EXTRACTION
+                                      │
+                            enrich_observable
+                            (domain / IP / URL / hash)
+                                      │
+                          correlate_observables
+                          (IPs, hashes, ASNs — local only)
+                                      │
+                           suggest_assessment
+                           (16 scored signals — machine recommendation)
+                                      │
+                         ╔════════════╧════════════╗
+                         ║       ANALYST GATE      ║
+                         ║      [assess_case]      ║
+                         ╚════════════╤════════════╝
+              ┌───────────┬───────────┴───────────┬──────────────┐
+              ▼           ▼                       ▼              ▼
+          confirmed  needs-ghidra            needs-angr   false-positive
+              │           │                       │              │
+           Approved   Req. Review             Req. Review    Rejected
+              │      🔍 MM alert             🐛 MM alert
+              │           │                       │
+              │         Ghidra                  angr
+              │        (external)             (external)
+              │           └────────────┬──────────┘
+              │                        │
+              └────────────────┬───────┘
+                               │
+                         APPROVED IOC
+                               │
+                       MISP (publication)
+                               │
+                      THREAT INTELLIGENCE
 ```
+
+**Three investigation intake paths:**
+
+| Path | Evidence type | Intake module(s) |
+|------|--------------|-----------------|
+| FILE / BINARY | Suspicious files, malware samples | `reverify_binary` + YARA |
+| WEB EVIDENCE | Defaced pages, script injection, XSS | `preserve_page` |
+| LOG / NETWORK | DDoS source data, authentication logs | `enrich_bulk_ips`, `parse_auth_log` |
+
+All three paths write their findings into the same FlowIntel case and continue through
+the same enrichment → correlation → assessment → analyst decision model.
+
+**Automation recommends. Analysts conclude.**
+
+```
+Observable  ≠ IOC              Signal       ≠ Detection
+Detection   ≠ Verdict          Correlation  ≠ Attribution
+YARA Match  ≠ Confirmed Malware
+Machine Recommendation ≠ Analyst Assessment
+```
+
+No intelligence is published without a deliberate analyst decision at `assess_case`.
 
 ---
 
