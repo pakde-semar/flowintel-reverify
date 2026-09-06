@@ -467,7 +467,8 @@ _Run `assess_case` with `decision: needs-ghidra` to record this decision._
 
 Use after reviewing enrichment notes and the `suggest_assessment` output to record
 the analyst's final decision. Applies a colour-coded custom tag, updates case status,
-and writes a timestamped audit note.
+writes a timestamped audit note, and — for `needs-ghidra` and `needs-angr` — sends
+an escalation alert to `#flowintel-alerts` in Mattermost.
 
 ### Run
 
@@ -527,11 +528,13 @@ to confirm exploitability."*
   "label": "Needs Ghidra",
   "tag": "needs-ghidra",
   "status_id": 9,
-  "rationale": "Process injection APIs and high entropy..."
+  "rationale": "Process injection APIs and high entropy...",
+  "notified": true
 }
 ```
 
-The response always includes a `notified` field (`true` if a Mattermost alert was sent).
+`notified: true` means the Mattermost escalation alert was sent successfully.
+`notified: false` means Mattermost is disabled or not configured.
 When `decision` is `confirmed`, the response also includes a `misp` field:
 
 ```json
