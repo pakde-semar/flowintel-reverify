@@ -323,3 +323,184 @@ def run_pipeline():
         flash(f"Pipeline error: {exc}", "danger")
 
     return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers shared by the three new module pages
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _all_cases():
+    """Return all cases ordered newest first."""
+    return Case.query.order_by(Case.id.desc()).all()
+
+
+def _run_module(module_name, case_id, payload):
+    """Load and call a single analyze module. Returns (result_dict, error_str)."""
+    try:
+        from app.utils.utils import get_modules_list
+        modules, _ = get_modules_list()
+        handler = modules.get(module_name)
+        if not handler:
+            return None, f"Module '{module_name}' not found."
+        case_orm = Case.query.get(case_id)
+        if not case_orm:
+            return None, f"Case #{case_id} not found."
+        case_dict = case_orm.to_json(); case_dict["tasks"] = []
+        user_dict = {"id": current_user.id, "email": current_user.email}
+        result = handler.handler(
+            instance={}, case=case_dict, user=user_dict,
+            case_model=CaseModel, db_session=db, payload=payload,
+        )
+        return result, None
+    except Exception as exc:
+        return None, str(exc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# enrich_bulk_ips
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/enrich_bulk_ips", methods=["GET"])
+@login_required
+def enrich_bulk_ips_form():
+    cases = _all_cases()
+    return render_template("reverify_tool/enrich_bulk_ips.html", cases=cases)
+
+
+@reverify_tool_blueprint.route("/enrich_bulk_ips", methods=["POST"])
+@login_required
+def enrich_bulk_ips_submit():
+    case_id  = request.form.get("case_id", type=int)
+    ip_text  = request.form.get("ip_list", "").strip()
+    max_ips  = request.form.get("max_ips", 100, type=int)
+
+    if not case_id:
+        flash("Please select a case.", "danger")
+        return redirect(url_for("reverify_tool.enrich_bulk_ips_form"))
+
+    # Parse IP list — one per line or comma-separated
+    import re as _re
+    ips = [x.strip() for x in _re.split(r'[\s,]+', ip_text) if x.strip()]
+
+    payload = {"max_ips": max_ips}
+    if ips:
+        payload["ips"] = ips
+
+    result, err = _run_module("enrich_bulk_ips", case_id, payload)
+
+    if err:
+        flash(f"Error: {err}", "danger")
+    elif result:
+        enriched = result.get("enriched", 0)
+        unique_asns = result.get("unique_asns", 0)
+        suspicious = result.get("suspicious_count", 0)
+        flash(
+            f"Done — {enriched} IPs enriched across {unique_asns} ASN(s). "
+            f"{suspicious} suspicious origin(s) flagged. Results written to Notes.",
+            "success",
+        )
+    else:
+        flash("Module returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# parse_auth_log
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/parse_auth_log", methods=["GET"])
+@login_required
+def parse_auth_log_form():
+    cases = _all_cases()
+    return render_template("reverify_tool/parse_auth_log.html", cases=cases)
+
+
+@reverify_tool_blueprint.route("/parse_auth_log", methods=["POST"])
+@login_required
+def parse_auth_log_submit():
+    case_id    = request.form.get("case_id", type=int)
+    log_text   = request.form.get("log_text", "").strip()
+    log_format = request.form.get("log_format", "auto")
+    threshold  = request.form.get("threshold", 5, type=int)
+    enrich_top = request.form.get("enrich_top", 20, type=int)
+
+    if not case_id:
+        flash("Please select a case.", "danger")
+        return redirect(url_for("reverify_tool.parse_auth_log_form"))
+
+    if not log_text:
+        flash("Please paste log content.", "danger")
+        return redirect(url_for("reverify_tool.parse_auth_log_form"))
+
+    payload = {
+        "log_text": log_text,
+        "log_format": log_format,
+        "threshold": threshold,
+        "enrich_top": enrich_top,
+    }
+    result, err = _run_module("parse_auth_log", case_id, payload)
+
+    if err:
+        flash(f"Error: {err}", "danger")
+    elif result:
+        events    = result.get("failed_events", 0)
+        attackers = result.get("attackers_above_threshold", 0)
+        users     = result.get("unique_users", 0)
+        fmt       = result.get("log_format", "?")
+        flash(
+            f"Parsed {events} failed auth events ({fmt} format). "
+            f"{attackers} IP(s) above threshold, {users} unique username(s) targeted. "
+            f"Results written to Notes.",
+            "success",
+        )
+    else:
+        flash("Module returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# preserve_page
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/preserve_page", methods=["GET"])
+@login_required
+def preserve_page_form():
+    cases = _all_cases()
+    return render_template("reverify_tool/preserve_page.html", cases=cases)
+
+
+@reverify_tool_blueprint.route("/preserve_page", methods=["POST"])
+@login_required
+def preserve_page_submit():
+    case_id    = request.form.get("case_id", type=int)
+    url        = request.form.get("url", "").strip()
+    wayback    = request.form.get("wayback") != "false"
+    save_files = request.form.get("save_files") != "false"
+
+    if not case_id:
+        flash("Please select a case.", "danger")
+        return redirect(url_for("reverify_tool.preserve_page_form"))
+
+    if not url:
+        flash("Please enter a URL.", "danger")
+        return redirect(url_for("reverify_tool.preserve_page_form"))
+
+    payload = {"url": url, "wayback": wayback, "save_files": save_files}
+    result, err = _run_module("preserve_page", case_id, payload)
+
+    if err:
+        flash(f"Error: {err}", "danger")
+    elif result:
+        title_page = result.get("title", url)
+        wayback_url = result.get("wayback") if isinstance(result.get("wayback"), str) else None
+        wb_msg = f" Wayback: {wayback_url}" if wayback_url else ""
+        flash(
+            f"Page preserved: \"{title_page}\". Screenshot and HTML saved to Files tab.{wb_msg}",
+            "success",
+        )
+    else:
+        flash("Module returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")

@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Preserve Page — flowintel-reverify</title>
+{{ super() }}
+{% endblock %}
+
+{% block content %}
+<div class="case-core-style mb-3" style="background: linear-gradient(135deg, #0a1a0a 0%, #102d10 60%, #154a15 100%); border-radius: 8px; color: white; padding: 1.25rem 1.5rem;">
+  <div class="d-flex align-items-center gap-3">
+    <i class="fa-solid fa-camera fa-2x" style="opacity: 0.85;"></i>
+    <div>
+      <h5 class="mb-0 fw-bold">Preserve Page</h5>
+      <small style="opacity: 0.75;">Forensic snapshot — screenshot + HTML source + external resource inventory + Wayback Machine archive</small>
+    </div>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+      {{ msg }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endwith %}
+
+<div class="row justify-content-center mt-3">
+<div class="col-lg-7 col-md-9">
+
+<!-- Warning banner -->
+<div class="alert alert-warning d-flex align-items-start gap-2 mb-3">
+  <i class="fa-solid fa-triangle-exclamation mt-1"></i>
+  <div>
+    <strong>Preserve before remediation.</strong><br>
+    Run this module <em>before</em> the compromised page is restored, taken down, or cleaned. The capture is a point-in-time evidence record.
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="card-header d-flex align-items-center gap-2" style="background: #f8f9fa;">
+    <i class="fa-solid fa-camera text-success"></i>
+    <strong>Forensic Page Capture</strong>
+  </div>
+  <div class="card-body p-4">
+    <form method="post" id="preserve_form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <!-- Case selector -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-folder-open me-1 text-muted"></i> Case
+        </label>
+        <select name="case_id" class="form-select" required>
+          <option value="">— select a case —</option>
+          {% for c in cases %}
+          <option value="{{ c.id }}">#{{ c.id }} — {{ c.title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- URL -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-link me-1 text-muted"></i> URL to preserve <span class="text-danger">*</span>
+        </label>
+        <input type="url" name="url" class="form-control font-monospace" required
+          placeholder="https://situs-deface.example.go.id">
+        <div class="form-text">Full URL including protocol. The page will be loaded with headless Chromium — JavaScript will execute.</div>
+      </div>
+
+      <!-- Options -->
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="wayback_check" name="wayback" value="true" checked>
+            <label class="form-check-label fw-semibold" for="wayback_check">
+              Submit to Wayback Machine
+            </label>
+          </div>
+          <div class="form-text ps-4">POST to web.archive.org/save — creates a public archive URL.</div>
+        </div>
+        <div class="col-md-6">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="files_check" name="save_files" value="true" checked>
+            <label class="form-check-label fw-semibold" for="files_check">
+              Attach to case Files tab
+            </label>
+          </div>
+          <div class="form-text ps-4">Screenshot (PNG) and HTML source saved as case file attachments.</div>
+        </div>
+      </div>
+
+      <!-- What this captures -->
+      <div class="alert alert-secondary py-2 px-3 mb-4" style="font-size: 0.85rem;">
+        <strong>What is captured and stored:</strong>
+        <ul class="mb-0 mt-1 ps-3">
+          <li>Full-page screenshot (PNG) → case Files tab</li>
+          <li>Complete HTML source → case Files tab</li>
+          <li>SHA-256 integrity hashes for both (tamper-evident)</li>
+          <li>External resource inventory — all scripts, iframes, images from outside the page domain</li>
+          <li>All domains contacted during page load</li>
+          <li>Wayback Machine archive URL (if enabled)</li>
+        </ul>
+        All output written to case Notes in structured Markdown.
+      </div>
+
+      <div class="d-grid">
+        <button type="submit" class="btn btn-success btn-lg" id="submit_btn">
+          <i class="fa-solid fa-camera me-2"></i>Capture &amp; Preserve Page
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Navigation -->
+<div class="mt-3 d-flex gap-2 flex-wrap justify-content-center">
+  <a href="{{ url_for('reverify_tool.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-upload me-1"></i> Binary Analysis
+  </a>
+  <a href="{{ url_for('reverify_tool.enrich_bulk_ips_form') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-network-wired me-1"></i> Bulk IP Enrichment
+  </a>
+  <a href="{{ url_for('reverify_tool.parse_auth_log_form') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-file-lines me-1"></i> Auth Log Parser
+  </a>
+  <a href="{{ url_for('reverify_tool.push_misp_form') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-share-nodes me-1"></i> Push to MISP
+  </a>
+</div>
+
+</div>
+</div>
+
+<script>
+document.getElementById('preserve_form').addEventListener('submit', function() {
+  const btn = document.getElementById('submit_btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Capturing page… Playwright is loading the URL';
+});
+</script>
+{% endblock %}

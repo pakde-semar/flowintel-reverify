@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Bulk IP Enrichment — flowintel-reverify</title>
+{{ super() }}
+{% endblock %}
+
+{% block content %}
+<div class="case-core-style mb-3" style="background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 60%, #1a3a5c 100%); border-radius: 8px; color: white; padding: 1.25rem 1.5rem;">
+  <div class="d-flex align-items-center gap-3">
+    <i class="fa-solid fa-network-wired fa-2x" style="opacity: 0.85;"></i>
+    <div>
+      <h5 class="mb-0 fw-bold">Bulk IP Enrichment</h5>
+      <small style="opacity: 0.75;">DDoS / network incident — group source IPs by ASN, flag suspicious origins, write summary to Notes</small>
+    </div>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+      {{ msg }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endwith %}
+
+<div class="row justify-content-center mt-3">
+<div class="col-lg-7 col-md-9">
+
+<div class="card shadow-sm border-0">
+  <div class="card-header d-flex align-items-center gap-2" style="background: #f8f9fa;">
+    <i class="fa-solid fa-network-wired text-primary"></i>
+    <strong>DDoS Source IP Analysis</strong>
+  </div>
+  <div class="card-body p-4">
+    <form method="post" id="bulk_form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <!-- Case selector -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-folder-open me-1 text-muted"></i> Case
+        </label>
+        <select name="case_id" class="form-select" required>
+          <option value="">— select a case —</option>
+          {% for c in cases %}
+          <option value="{{ c.id }}">#{{ c.id }} — {{ c.title }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Results (ASN grouping, country distribution, suspicious flags) will be written to this case's Notes.</div>
+      </div>
+
+      <!-- IP list -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-list me-1 text-muted"></i> Source IP list
+          <span class="text-muted fw-normal">(optional)</span>
+        </label>
+        <textarea name="ip_list" class="form-control font-monospace" rows="10"
+          placeholder="One IP per line, or comma-separated:&#10;1.2.3.4&#10;5.6.7.8&#10;9.10.11.12&#10;&#10;Leave empty to auto-extract IPs already in case Notes."></textarea>
+        <div class="form-text">Public IPs only — RFC1918 / loopback addresses are filtered out automatically.</div>
+      </div>
+
+      <!-- max_ips -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-hashtag me-1 text-muted"></i> Max IPs to enrich
+        </label>
+        <input type="number" name="max_ips" class="form-control" value="100" min="1" max="1000">
+        <div class="form-text">Cap per run. Increase for large DDoS sources — each IP takes ~1–2 s (RDAP + RIPE Stat).</div>
+      </div>
+
+      <!-- What this does -->
+      <div class="alert alert-secondary py-2 px-3 mb-4" style="font-size: 0.85rem;">
+        <strong>What this module produces:</strong>
+        <ul class="mb-0 mt-1 ps-3">
+          <li>Top ASNs table with holder name, country, IP count</li>
+          <li>Country distribution</li>
+          <li>Suspicious origin flags (Tor exits, bulletproof hosting) — signals, not attribution</li>
+        </ul>
+      </div>
+
+      <div class="d-grid">
+        <button type="submit" class="btn btn-primary btn-lg" id="submit_btn">
+          <i class="fa-solid fa-network-wired me-2"></i>Run enrich_bulk_ips
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Navigation -->
+<div class="mt-3 d-flex gap-2 flex-wrap justify-content-center">
+  <a href="{{ url_for('reverify_tool.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-upload me-1"></i> Binary Analysis
+  </a>
+  <a href="{{ url_for('reverify_tool.parse_auth_log_form') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-file-lines me-1"></i> Auth Log Parser
+  </a>
+  <a href="{{ url_for('reverify_tool.preserve_page_form') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-camera me-1"></i> Preserve Page
+  </a>
+  <a href="{{ url_for('reverify_tool.push_misp_form') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-share-nodes me-1"></i> Push to MISP
+  </a>
+</div>
+
+</div>
+</div>
+
+<script>
+document.getElementById('bulk_form').addEventListener('submit', function() {
+  const btn = document.getElementById('submit_btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enriching IPs… this may take a while';
+});
+</script>
+{% endblock %}
