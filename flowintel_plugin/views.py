@@ -504,3 +504,138 @@ def preserve_page_submit():
         flash("Module returned no result.", "warning")
 
     return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# enrich_observable
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/enrich_observable", methods=["POST"])
+@login_required
+def enrich_observable_submit():
+    case_id = request.form.get("case_id", type=int)
+    value   = request.form.get("value", "").strip()
+    obs_type = request.form.get("obs_type", "auto")
+
+    if not case_id or not value:
+        flash("Case and observable value are required.", "danger")
+        return redirect(url_for("reverify_tool.investigate_form") + f"?case_id={case_id or ''}")
+
+    payload = {"value": value}
+    if obs_type and obs_type != "auto":
+        payload["type"] = obs_type
+
+    result, err = _run_module("enrich_observable", case_id, payload)
+    if err:
+        flash(f"enrich_observable error: {err}", "danger")
+    elif result:
+        obs_t = result.get("type", obs_type)
+        flash(f"Enriched {obs_t}: {value[:60]} — results written to Notes.", "success")
+    else:
+        flash("enrich_observable returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# correlate_observables
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/correlate_observables", methods=["POST"])
+@login_required
+def correlate_observables_submit():
+    case_id = request.form.get("case_id", type=int)
+    obs_raw = request.form.get("observables", "").strip()
+
+    if not case_id:
+        flash("Please select a case.", "danger")
+        return redirect(url_for("reverify_tool.investigate_form"))
+
+    payload = {}
+    if obs_raw:
+        import re as _re2
+        payload["observables"] = [x.strip() for x in _re2.split(r'[\s,\n]+', obs_raw) if x.strip()]
+
+    result, err = _run_module("correlate_observables", case_id, payload)
+    if err:
+        flash(f"correlate_observables error: {err}", "danger")
+    elif result:
+        matches = result.get("matches_found", 0)
+        links   = result.get("links_created", 0)
+        flash(f"Correlation complete — {matches} case overlap(s), {links} case link(s) created.", "success")
+    else:
+        flash("correlate_observables returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# suggest_assessment
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/suggest_assessment", methods=["POST"])
+@login_required
+def suggest_assessment_submit():
+    case_id = request.form.get("case_id", type=int)
+
+    if not case_id:
+        flash("Please select a case.", "danger")
+        return redirect(url_for("reverify_tool.investigate_form"))
+
+    result, err = _run_module("suggest_assessment", case_id, {})
+    if err:
+        flash(f"suggest_assessment error: {err}", "danger")
+    elif result:
+        decision = result.get("decision", "?")
+        score    = result.get("score", "?")
+        flash(f"Assessment suggestion: {decision} (score: {score}) — full report written to Notes.", "success")
+    else:
+        flash("suggest_assessment returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# assess_case
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/assess_case", methods=["POST"])
+@login_required
+def assess_case_submit():
+    case_id   = request.form.get("case_id", type=int)
+    decision  = request.form.get("decision", "").strip()
+    rationale = request.form.get("rationale", "").strip()
+
+    if not case_id or not decision:
+        flash("Case and decision are required.", "danger")
+        return redirect(url_for("reverify_tool.investigate_form") + f"?case_id={case_id or ''}")
+
+    payload = {"decision": decision}
+    if rationale:
+        payload["rationale"] = rationale
+
+    result, err = _run_module("assess_case", case_id, payload)
+    if err:
+        flash(f"assess_case error: {err}", "danger")
+    elif result:
+        flash(f"Assessment recorded: {decision}. Audit note written to Notes.", "success")
+    else:
+        flash("assess_case returned no result.", "warning")
+
+    return redirect(f"/case/{case_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Investigation Hub
+# ─────────────────────────────────────────────────────────────────────────────
+
+@reverify_tool_blueprint.route("/investigate", methods=["GET"])
+@login_required
+def investigate_form():
+    cases = _all_cases()
+    selected_case_id = request.args.get("case_id", type=int)
+    return render_template(
+        "reverify_tool/investigate.html",
+        cases=cases,
+        selected_case_id=selected_case_id,
+    )

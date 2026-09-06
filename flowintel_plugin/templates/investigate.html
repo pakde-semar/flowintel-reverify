@@ -1,0 +1,416 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Investigation Hub — flowintel-reverify</title>
+{{ super() }}
+<style>
+.module-card { border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 1rem; overflow: hidden; }
+.module-card .card-header {
+  cursor: pointer; background: #f8f9fa; padding: .75rem 1rem;
+  display: flex; align-items: center; gap: .6rem; user-select: none;
+}
+.module-card .card-header:hover { background: #e9ecef; }
+.module-card .card-header .badge-category {
+  font-size: .65rem; padding: .25em .5em; border-radius: 4px; font-weight: 600;
+}
+.module-card .card-body { padding: 1.2rem; border-top: 1px solid #dee2e6; }
+.module-card .chevron { margin-left: auto; transition: transform .2s; }
+.module-card.open .chevron { transform: rotate(180deg); }
+.module-card .card-body { display: none; }
+.module-card.open .card-body { display: block; }
+.category-label {
+  font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: #6c757d; margin: 1.5rem 0 .4rem; display: flex; align-items: center; gap: .5rem;
+}
+.category-label::after { content: ''; flex: 1; height: 1px; background: #dee2e6; }
+.sticky-case { position: sticky; top: 0; z-index: 100; background: #fff; padding: .75rem 0; border-bottom: 1px solid #dee2e6; margin-bottom: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="case-core-style mb-0" style="background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 60%, #0f3460 100%); border-radius: 8px; color: white; padding: 1.25rem 1.5rem;">
+  <div class="d-flex align-items-center gap-3">
+    <i class="fa-solid fa-shield-halved fa-2x" style="opacity:.85;"></i>
+    <div>
+      <h5 class="mb-0 fw-bold">Investigation Hub</h5>
+      <small style="opacity:.75;">All 8 modules — select a case, expand a module, run it. Results go to the case Notes.</small>
+    </div>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }} alert-dismissible fade show mt-3 mb-0" role="alert">
+      {{ msg }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endwith %}
+
+<!-- Sticky case selector -->
+<div class="sticky-case mt-2">
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+    <label class="fw-semibold mb-0 text-nowrap">
+      <i class="fa-solid fa-folder-open me-1 text-muted"></i> Active case:
+    </label>
+    <select id="global_case" class="form-select" style="max-width:480px;">
+      <option value="">— select a case —</option>
+      {% for c in cases %}
+      <option value="{{ c.id }}" {% if selected_case_id == c.id %}selected{% endif %}>
+        #{{ c.id }} — {{ c.title }}
+      </option>
+      {% endfor %}
+    </select>
+    <a id="open_case_btn" href="#" class="btn btn-sm btn-outline-secondary" target="_blank" style="display:none;">
+      <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Open case
+    </a>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 1 — Evidence intake modules
+════════════════════════════════════════════════════════════════════════ -->
+<div class="category-label"><i class="fa-solid fa-inbox text-primary"></i> Evidence intake</div>
+
+<!-- preserve_page ────────────────────────────────────────── -->
+<div class="module-card" id="card-preserve">
+  <div class="card-header" onclick="toggleCard('preserve')">
+    <i class="fa-solid fa-camera text-success"></i>
+    <div>
+      <strong>preserve_page</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">Web defacement · script injection · XSS — Playwright screenshot + HTML + Wayback Machine</small>
+    </div>
+    <span class="badge bg-success badge-category">WEB EVIDENCE</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem;">
+      <i class="fa-solid fa-triangle-exclamation me-1"></i>
+      <strong>Preserve before remediation</strong> — run this before the page is restored or taken down.
+    </div>
+    <form method="post" action="{{ url_for('reverify_tool.preserve_page_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">URL to preserve <span class="text-danger">*</span></label>
+        <input type="url" name="url" class="form-control font-monospace" required placeholder="https://situs-deface.go.id">
+      </div>
+      <div class="d-flex gap-4 mb-3">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" name="wayback" value="true" id="wb1" checked>
+          <label class="form-check-label" for="wb1">Submit to Wayback Machine</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" name="save_files" value="true" id="sf1" checked>
+          <label class="form-check-label" for="sf1">Attach to Files tab</label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success run-btn"><i class="fa-solid fa-camera me-2"></i>Capture Page</button>
+    </form>
+  </div>
+</div>
+
+<!-- reverify_binary ──────────────────────────────────────── -->
+<div class="module-card" id="card-reverify">
+  <div class="card-header" onclick="toggleCard('reverify')">
+    <i class="fa-solid fa-file-code text-primary"></i>
+    <div>
+      <strong>reverify_binary</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">Static analysis · YARA rule generation · MISP draft event · Mattermost alert</small>
+    </div>
+    <span class="badge bg-primary badge-category">FILE / BINARY</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <p class="text-muted" style="font-size:.85rem;">Binary upload requires a separate form. Use the <strong>Reverify Binary</strong> page to create a new case with an uploaded file, or <strong>Push Case to MISP</strong> to re-analyze an existing file.</p>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('reverify_tool.index') }}" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-upload me-1"></i>Reverify Binary (new case)
+      </a>
+      <a href="{{ url_for('reverify_tool.push_misp_form') }}" class="btn btn-outline-primary btn-sm">
+        <i class="fa-solid fa-share-nodes me-1"></i>Push to MISP / Run Full Pipeline
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- enrich_bulk_ips ──────────────────────────────────────── -->
+<div class="module-card" id="card-bulk">
+  <div class="card-header" onclick="toggleCard('bulk')">
+    <i class="fa-solid fa-network-wired text-info"></i>
+    <div>
+      <strong>enrich_bulk_ips</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">DDoS source analysis — group IPs by ASN/country, flag suspicious origins</small>
+    </div>
+    <span class="badge bg-info badge-category text-dark">LOG / NETWORK</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('reverify_tool.enrich_bulk_ips_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Source IP list <span class="text-muted fw-normal">(leave empty to auto-extract from Notes)</span></label>
+        <textarea name="ip_list" class="form-control font-monospace" rows="6"
+          placeholder="1.2.3.4&#10;5.6.7.8&#10;9.10.11.12&#10;&#10;One per line or comma-separated."></textarea>
+      </div>
+      <div class="mb-3" style="max-width:180px;">
+        <label class="form-label fw-semibold">Max IPs to enrich</label>
+        <input type="number" name="max_ips" class="form-control" value="100" min="1" max="1000">
+      </div>
+      <button type="submit" class="btn btn-info text-dark run-btn"><i class="fa-solid fa-network-wired me-2"></i>Run enrich_bulk_ips</button>
+    </form>
+  </div>
+</div>
+
+<!-- parse_auth_log ───────────────────────────────────────── -->
+<div class="module-card" id="card-authlog">
+  <div class="card-header" onclick="toggleCard('authlog')">
+    <i class="fa-solid fa-file-lines text-danger"></i>
+    <div>
+      <strong>parse_auth_log</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">ATO · credential stuffing · brute force — extract attacker IPs, targeted usernames</small>
+    </div>
+    <span class="badge bg-danger badge-category">LOG / NETWORK</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('reverify_tool.parse_auth_log_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Log content <span class="text-danger">*</span></label>
+        <textarea name="log_text" class="form-control font-monospace" rows="8" required
+          placeholder="Paste nginx/apache/auth.log/JSON log lines here.&#10;&#10;Example (sshd): Sep  6 10:00:01 host sshd[1234]: Failed password for root from 1.2.3.4 port 55432 ssh2"></textarea>
+      </div>
+      <div class="row g-3 mb-3">
+        <div class="col-sm-4">
+          <label class="form-label fw-semibold">Format</label>
+          <select name="log_format" class="form-select">
+            <option value="auto">auto-detect</option>
+            <option value="nginx">nginx</option>
+            <option value="apache">apache</option>
+            <option value="auth">sshd auth.log</option>
+            <option value="json">JSON per line</option>
+          </select>
+        </div>
+        <div class="col-sm-4">
+          <label class="form-label fw-semibold">Fail threshold</label>
+          <input type="number" name="threshold" class="form-control" value="5" min="1">
+          <div class="form-text">Flag IPs with ≥ this many fails.</div>
+        </div>
+        <div class="col-sm-4">
+          <label class="form-label fw-semibold">Enrich top N IPs</label>
+          <input type="number" name="enrich_top" class="form-control" value="20" min="1" max="100">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-danger run-btn"><i class="fa-solid fa-magnifying-glass me-2"></i>Parse &amp; Analyse Log</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 2 — Cross-cutting modules
+════════════════════════════════════════════════════════════════════════ -->
+<div class="category-label"><i class="fa-solid fa-arrows-turn-to-dots text-secondary"></i> Cross-cutting investigation</div>
+
+<!-- enrich_observable ───────────────────────────────────── -->
+<div class="module-card" id="card-enrich">
+  <div class="card-header" onclick="toggleCard('enrich')">
+    <i class="fa-solid fa-magnifying-glass-plus text-secondary"></i>
+    <div>
+      <strong>enrich_observable</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">Enrich one domain / IP / URL / hash — RDAP · CIRCL PDNS · RIPE Stat · Lookyloo · hashlookup</small>
+    </div>
+    <span class="badge bg-secondary badge-category">CROSS-CUTTING</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('reverify_tool.enrich_observable_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <div class="row g-3 mb-3">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold">Observable value <span class="text-danger">*</span></label>
+          <input type="text" name="value" class="form-control font-monospace" required
+            placeholder="domain.com  /  1.2.3.4  /  https://...  /  sha256hash">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Type</label>
+          <select name="obs_type" class="form-select">
+            <option value="auto">auto-detect</option>
+            <option value="domain">domain</option>
+            <option value="ip">IP address</option>
+            <option value="url">URL</option>
+            <option value="hash">hash (MD5/SHA256)</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-secondary run-btn"><i class="fa-solid fa-magnifying-glass-plus me-2"></i>Enrich Observable</button>
+    </form>
+  </div>
+</div>
+
+<!-- correlate_observables ───────────────────────────────── -->
+<div class="module-card" id="card-correlate">
+  <div class="card-header" onclick="toggleCard('correlate')">
+    <i class="fa-solid fa-diagram-project text-secondary"></i>
+    <div>
+      <strong>correlate_observables</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">Cross-case scan — finds cases sharing IPs, hashes, or ASNs. Creates case links.</small>
+    </div>
+    <span class="badge bg-secondary badge-category">CROSS-CUTTING</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('reverify_tool.correlate_observables_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Observables to correlate <span class="text-muted fw-normal">(optional)</span></label>
+        <textarea name="observables" class="form-control font-monospace" rows="3"
+          placeholder="Leave empty to auto-extract IPs, hashes, and ASNs from case Notes.&#10;Or paste specific values — one per line."></textarea>
+      </div>
+      <p class="text-muted mb-3" style="font-size:.83rem;">
+        <i class="fa-solid fa-circle-info me-1"></i>
+        Correlation finds shared observables across cases — a shared IP is a correlation signal, not the same as attribution.
+      </p>
+      <button type="submit" class="btn btn-secondary run-btn"><i class="fa-solid fa-diagram-project me-2"></i>Run Correlation</button>
+    </form>
+  </div>
+</div>
+
+<!-- suggest_assessment ──────────────────────────────────── -->
+<div class="module-card" id="card-suggest">
+  <div class="card-header" onclick="toggleCard('suggest')">
+    <i class="fa-solid fa-robot text-secondary"></i>
+    <div>
+      <strong>suggest_assessment</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">Score 16 rule-based signals across all Notes — produces a machine recommendation (not a verdict)</small>
+    </div>
+    <span class="badge bg-secondary badge-category">CROSS-CUTTING</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('reverify_tool.suggest_assessment_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <p class="text-muted mb-3" style="font-size:.83rem;">
+        <i class="fa-solid fa-circle-info me-1"></i>
+        Reads all case Notes and scores signals (entropy, injection APIs, KNOWN MALICIOUS, vuln keywords, correlation hits).
+        Output: scored table + suggested next step.
+        <strong>Machine recommendation ≠ analyst assessment.</strong>
+      </p>
+      <button type="submit" class="btn btn-secondary run-btn"><i class="fa-solid fa-robot me-2"></i>Run suggest_assessment</button>
+    </form>
+  </div>
+</div>
+
+<!-- assess_case ─────────────────────────────────────────── -->
+<div class="module-card" id="card-assess">
+  <div class="card-header" onclick="toggleCard('assess')">
+    <i class="fa-solid fa-gavel text-warning"></i>
+    <div>
+      <strong>assess_case</strong>
+      <small class="text-muted d-block" style="font-size:.78rem;">Analyst decision gate — confirmed publishes MISP; needs-ghidra / needs-angr send Mattermost alert</small>
+    </div>
+    <span class="badge bg-warning badge-category text-dark">ANALYST GATE</span>
+    <i class="fa-solid fa-chevron-down chevron"></i>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem;">
+      <i class="fa-solid fa-triangle-exclamation me-1"></i>
+      <strong>Analyst owns this decision.</strong> Automation may recommend — the analyst concludes.
+      Choosing <code>confirmed</code> will publish the MISP draft event.
+    </div>
+    <form method="post" action="{{ url_for('reverify_tool.assess_case_submit') }}" class="module-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="case_id" class="case-field" value="{{ selected_case_id or '' }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Decision <span class="text-danger">*</span></label>
+        <div class="d-flex flex-wrap gap-2" id="decision_group">
+          <label class="btn btn-outline-success decision-btn" data-val="confirmed">
+            <input type="radio" name="decision" value="confirmed" class="d-none"> ✓ confirmed
+          </label>
+          <label class="btn btn-outline-primary decision-btn" data-val="needs-ghidra">
+            <input type="radio" name="decision" value="needs-ghidra" class="d-none"> 🔍 needs-ghidra
+          </label>
+          <label class="btn btn-outline-warning decision-btn" data-val="needs-angr">
+            <input type="radio" name="decision" value="needs-angr" class="d-none"> 🐛 needs-angr
+          </label>
+          <label class="btn btn-outline-secondary decision-btn" data-val="false-positive">
+            <input type="radio" name="decision" value="false-positive" class="d-none"> ✗ false-positive
+          </label>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Rationale <span class="text-muted fw-normal">(optional)</span></label>
+        <textarea name="rationale" class="form-control" rows="3"
+          placeholder="Brief explanation — written to the audit note in the case."></textarea>
+      </div>
+      <button type="submit" class="btn btn-warning run-btn" id="assess_submit_btn" disabled>
+        <i class="fa-solid fa-gavel me-2"></i>Record Decision
+      </button>
+    </form>
+  </div>
+</div>
+
+<div style="height:3rem;"></div>
+
+<script>
+// ── Case selector propagation ──────────────────────────────────────────────
+const globalCase = document.getElementById('global_case');
+const openBtn    = document.getElementById('open_case_btn');
+
+function propagateCase() {
+  const val = globalCase.value;
+  document.querySelectorAll('.case-field').forEach(f => f.value = val);
+  if (val) {
+    openBtn.href = '/case/' + val;
+    openBtn.style.display = '';
+  } else {
+    openBtn.style.display = 'none';
+  }
+}
+globalCase.addEventListener('change', propagateCase);
+propagateCase();
+
+// ── Card toggle ────────────────────────────────────────────────────────────
+function toggleCard(id) {
+  const card = document.getElementById('card-' + id);
+  card.classList.toggle('open');
+}
+
+// ── Decision radio buttons ─────────────────────────────────────────────────
+document.querySelectorAll('.decision-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.decision-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    this.querySelector('input').checked = true;
+    document.getElementById('assess_submit_btn').disabled = false;
+  });
+});
+
+// ── Spinner on submit ─────────────────────────────────────────────────────
+document.querySelectorAll('.module-form').forEach(form => {
+  form.addEventListener('submit', function(e) {
+    const caseId = this.querySelector('.case-field').value;
+    if (!caseId) {
+      e.preventDefault();
+      alert('Select a case first (at the top of the page).');
+      return;
+    }
+    const btn = this.querySelector('.run-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running…';
+  });
+});
+
+// ── Auto-open card if URL has hash ────────────────────────────────────────
+if (location.hash) {
+  const id = location.hash.replace('#', '');
+  const card = document.getElementById('card-' + id);
+  if (card) card.classList.add('open');
+}
+</script>
+{% endblock %}
