@@ -55,9 +55,11 @@ Five modules share the same Flowintel case as their container:
 │  suggestion + table  │                            │    Approved; MISP    │
 │  of triggered rules  │                            │    draft published   │
 │                      │                            │  needs-ghidra →      │
-│                      │                            │    Request Review    │
+│                      │                            │    Request Review +  │
+│                      │                            │    🔍 MM alert       │
 │                      │                            │  needs-angr →        │
-│                      │                            │    Request Review    │
+│                      │                            │    Request Review +  │
+│                      │                            │    🐛 MM alert       │
 │                      │                            │  false-positive →    │
 │                      │                            │    Rejected          │
 │                      │                            │                      │
@@ -569,7 +571,7 @@ No payload required. Reads the current case Notes and scores against 16 built-in
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `decision` | `"confirmed"` \| `"needs-ghidra"` \| `"needs-angr"` \| `"false-positive"` | — | Analyst decision; `confirmed` also publishes the MISP draft event |
+| `decision` | `"confirmed"` \| `"needs-ghidra"` \| `"needs-angr"` \| `"false-positive"` | — | Analyst decision; `confirmed` publishes the MISP draft event; `needs-ghidra` and `needs-angr` send a Mattermost escalation alert |
 | `rationale` | string | — | Optional explanation written to the audit note |
 
 ### Depth options (reverify_binary)
