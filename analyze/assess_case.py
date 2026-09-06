@@ -3,15 +3,13 @@ Flowintel module: assess_case
 Category: analyze
 
 Analyst assessment gate. Records the analyst's decision on the current case,
-applies a custom tag, updates case status, and writes a structured audit note.
+updates case status, and writes a structured audit note to the case.
 
 Decisions:
-  confirmed      → publishes the MISP draft event (if one exists), applies Approved status
-  needs-ghidra   → insufficient evidence; escalate to deep binary analysis
-                   sends Mattermost alert to #flowintel-alerts
-  needs-angr     → vulnerability confirmed by Ghidra; need proof of exploitability
-                   sends Mattermost alert to #flowintel-alerts
-  false-positive → findings dismissed; no further action
+  confirmed      → publishes the MISP draft event (if one exists), sets Approved status
+  needs-ghidra   → escalate to deep binary analysis; sends Mattermost alert
+  needs-angr     → escalate to angr symbolic execution; sends Mattermost alert
+  false-positive → findings dismissed; sets Rejected status
 
 Payload:
   decision : str  — one of: confirmed | needs-ghidra | needs-angr | false-positive
@@ -29,29 +27,23 @@ module_config = {
     "case_task": "case",
     "description": (
         "Analyst assessment gate: records decision (confirmed / needs-ghidra / "
-        "needs-angr / false-positive), applies custom tag, updates case status, "
+        "needs-angr / false-positive), updates case status, "
         "and writes a structured audit note."
     ),
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Decision → tag + status mapping
+# Decision → status mapping
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DECISIONS = {
     "confirmed": {
-        "tag_name"   : "confirmed",
-        "tag_color"  : "#28a745",
-        "tag_icon"   : "check-circle",
         "status_id"  : 8,           # Approved
         "label"      : "Confirmed",
         "note_header": "CONFIRMED ✓ — IOCs verified. MISP event will be published.",
         "notify"     : False,
     },
     "needs-ghidra": {
-        "tag_name"   : "needs-ghidra",
-        "tag_color"  : "#fd7e14",
-        "tag_icon"   : "search",
         "status_id"  : 9,           # Request Review
         "label"      : "Needs Ghidra",
         "note_header": "ESCALATED → Ghidra — insufficient evidence from automated triage.",
@@ -60,9 +52,6 @@ _DECISIONS = {
         "emoji"      : "🔍",
     },
     "needs-angr": {
-        "tag_name"   : "needs-angr",
-        "tag_color"  : "#dc3545",
-        "tag_icon"   : "bug",
         "status_id"  : 9,           # Request Review
         "label"      : "Needs angr",
         "note_header": "ESCALATED → angr — Ghidra confirmed a vulnerability; proof of exploitability required.",
@@ -71,75 +60,12 @@ _DECISIONS = {
         "emoji"      : "🐛",
     },
     "false-positive": {
-        "tag_name"   : "false-positive",
-        "tag_color"  : "#6c757d",
-        "tag_icon"   : "times-circle",
         "status_id"  : 5,           # Rejected
         "label"      : "False Positive",
         "note_header": "FALSE POSITIVE — findings dismissed; no further action.",
         "notify"     : False,
     },
 }
-
-_ASSESSMENT_TAG_NAMES = {d["tag_name"] for d in _DECISIONS.values()}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Tag helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _ensure_tag(tag_name: str, color: str, icon: str, db_session) -> int | None:
-    """Return id of the named custom tag, creating it if it doesn't exist."""
-    try:
-        from app.db_class.db import Custom_Tags
-        import uuid as _uuid
-        tag = Custom_Tags.query.filter_by(name=tag_name).first()
-        if tag:
-            return tag.id
-        tag = Custom_Tags(
-            name=tag_name,
-            color=color,
-            icon=icon,
-            is_active=True,
-            uuid=str(_uuid.uuid4()),
-        )
-        db_session.session.add(tag)
-        db_session.session.commit()
-        return tag.id
-    except Exception as exc:
-        logger.warning("Could not ensure custom tag %r: %s", tag_name, exc)
-        return None
-
-
-def _clear_assessment_tags(case_id: int, db_session):
-    """Remove all assessment custom tags from the case."""
-    try:
-        from app.db_class.db import Custom_Tags, Case_Custom_Tags
-        assessment_tags = Custom_Tags.query.filter(
-            Custom_Tags.name.in_(_ASSESSMENT_TAG_NAMES)
-        ).all()
-        tag_ids = {t.id for t in assessment_tags}
-        if not tag_ids:
-            return
-        existing = Case_Custom_Tags.query.filter(
-            Case_Custom_Tags.case_id == case_id,
-            Case_Custom_Tags.custom_tag_id.in_(tag_ids),
-        ).all()
-        for row in existing:
-            db_session.session.delete(row)
-        db_session.session.commit()
-    except Exception as exc:
-        logger.warning("Could not clear assessment tags for case %s: %s", case_id, exc)
-
-
-def _attach_tag(case_id: int, tag_id: int, db_session):
-    try:
-        from app.db_class.db import Case_Custom_Tags
-        row = Case_Custom_Tags(case_id=case_id, custom_tag_id=tag_id)
-        db_session.session.add(row)
-        db_session.session.commit()
-    except Exception as exc:
-        logger.warning("Could not attach tag %s to case %s: %s", tag_id, case_id, exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -408,30 +334,20 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
     except Exception as exc:
         return {"error": f"Could not load case: {exc}"}
 
-    # 1. Ensure the tag exists (create if new)
-    tag_id = _ensure_tag(meta["tag_name"], meta["tag_color"], meta["tag_icon"], db_session)
-
-    # 2. Remove any previous assessment tags
-    _clear_assessment_tags(case_id, db_session)
-
-    # 3. Attach the new tag
-    if tag_id:
-        _attach_tag(case_id, tag_id, db_session)
-
-    # 4. Update case status
+    # 1. Update case status
     _update_status(case_orm, meta["status_id"], db_session)
 
-    # 5. Publish MISP event if confirmed
+    # 2. Publish MISP event if confirmed
     misp_result = None
     if decision_key == "confirmed" and db_session:
         misp_result = _publish_misp_event(case_id, db_session)
 
-    # 6. Write structured audit note
+    # 3. Write structured audit note
     note = _format_note(decision_key, meta, rationale, analyst_name, case_id,
                         misp_result=misp_result)
     _write_note(case_orm, note, db_session)
 
-    # 7. Send Mattermost escalation alert for needs-ghidra / needs-angr
+    # 4. Send Mattermost escalation alert for needs-ghidra / needs-angr
     notified = False
     if meta.get("notify"):
         case_title = getattr(case_orm, "title", None) or f"Case #{case_id}"
@@ -442,7 +358,6 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
         "case_id"   : case_id,
         "decision"  : decision_key,
         "label"     : meta["label"],
-        "tag"       : meta["tag_name"],
         "status_id" : meta["status_id"],
         "rationale" : rationale,
         "notified"  : notified,
