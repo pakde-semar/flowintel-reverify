@@ -226,9 +226,12 @@ Incoming binary
 ┌─────────────────────────────────────────────────────────┐
 │  assess_case  (analyst records decision, seconds)       │
 │                                                         │
-│  confirmed      → Approved + custom tag (green)         │
+│  confirmed      → Approved + tag (green)                │
+│                   publishes MISP draft event            │
 │  needs-ghidra   → Request Review + tag (orange)         │
+│                   🔍 Mattermost alert → #flowintel-alerts│
 │  needs-angr     → Request Review + tag (red)            │
+│                   🐛 Mattermost alert → #flowintel-alerts│
 │  false-positive → Rejected + tag (grey)                 │
 │  Writes timestamped audit note with rationale           │
 └──────────────────────┬──────────────────────────────────┘
@@ -278,7 +281,7 @@ Incoming binary
 >
 > Use **suggest_assessment** to get a scored, rule-based recommendation before committing to a decision — 16 signals across entropy, injection APIs, known-malicious hashes, vulnerability keywords, and correlation hits.
 >
-> Use **assess_case** to record the analyst's final decision, apply a colour-coded custom tag, update case status, and write an audit trail.
+> Use **assess_case** to record the analyst's final decision, apply a colour-coded custom tag, update case status, and write an audit trail. `confirmed` publishes the MISP draft event automatically. `needs-ghidra` and `needs-angr` send an escalation alert to `#flowintel-alerts` in Mattermost.
 >
 > Use **YARA** to hunt for variants across a file collection using the rule Reverify produced.
 >
