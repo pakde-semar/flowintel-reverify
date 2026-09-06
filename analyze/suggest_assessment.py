@@ -83,6 +83,8 @@ _SIGNALS = [
 
 _RE_FLAGS = re.IGNORECASE
 
+_MARKER_RE = re.compile(r'<!-- FIR_SUGGESTION:[^\n]+ -->', re.MULTILINE)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scoring engine
@@ -184,8 +186,29 @@ def _format_note(case_id, decision, ghidra_score, angr_score, confirmed_score, f
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Note writer
+# Note writer + machine-readable marker
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _update_marker(case_orm, decision: str, total_score: int, db_session):
+    """Replace (or append) the FIR_SUGGESTION marker in case notes.
+
+    The marker is an HTML comment so it is invisible in rendered Markdown.
+    Format: <!-- FIR_SUGGESTION:decision:score:ISO-timestamp -->
+    """
+    try:
+        ts     = _dt.datetime.now().strftime("%Y-%m-%dT%H:%M")
+        marker = f"<!-- FIR_SUGGESTION:{decision}:{total_score}:{ts} -->"
+        notes  = case_orm.notes or ""
+        if _MARKER_RE.search(notes):
+            notes = _MARKER_RE.sub(marker, notes)
+        else:
+            notes = notes.rstrip() + "\n" + marker
+        case_orm.notes      = notes
+        case_orm.last_modif = _dt.datetime.now()
+        db_session.session.commit()
+    except Exception as exc:
+        logger.warning("Could not update FIR_SUGGESTION marker: %s", exc)
+
 
 def _write_note(case_id, note_text, db_session):
     try:
@@ -221,12 +244,20 @@ def handler(instance, case, user, case_model=None, db_session=None, payload=None
         }
 
     ghidra_score, angr_score, confirmed_score, fired = _score_notes(notes)
-    decision = _decide(ghidra_score, angr_score, confirmed_score)
+    decision    = _decide(ghidra_score, angr_score, confirmed_score)
+    total_score = max(ghidra_score, angr_score, 0) + abs(min(confirmed_score, 0))
 
     note = _format_note(case_id, decision, ghidra_score, angr_score, confirmed_score, fired)
 
     if db_session:
-        _write_note(case_id, note, db_session)
+        try:
+            from app.case import common_core as _CC
+            case_orm = _CC.get_case(case_id)
+            if case_orm:
+                _write_note(case_id, note, db_session)
+                _update_marker(case_orm, decision, total_score, db_session)
+        except Exception as exc:
+            logger.warning("Could not write suggestion output: %s", exc)
 
     return {
         "case_id" : case_id,

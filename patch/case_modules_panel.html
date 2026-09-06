@@ -3,12 +3,29 @@
      flowintel-reverify — Investigation Modules Panel
      Injected above the case tabs (Notes / MISP / Files / ...)
 ════════════════════════════════════════════════════════════════════════ -->
+
+{# Pass raw notes to JS so the suggestion marker can be parsed client-side #}
+<script>window._firNotes = {{ case.notes | tojson }};</script>
+
 <div class="case-core-style mt-3" id="fir-modules-panel" style="padding: .75rem 1rem;">
   <div class="d-flex align-items-center gap-2 mb-2" style="cursor:pointer;" onclick="firTogglePanel()">
     <i class="fa-solid fa-shield-halved text-primary"></i>
     <span class="fw-semibold" style="font-size:.92rem;">Investigation Modules</span>
     <span class="badge bg-primary" style="font-size:.65rem;">8 modules</span>
+    <span id="fir-suggest-badge" style="display:none;"></span>
     <i class="fa-solid fa-chevron-down ms-auto fir-chevron" id="fir-chevron" style="transition:transform .2s;"></i>
+  </div>
+
+  {# Suggestion banner — shown when suggest_assessment has run #}
+  <div id="fir-suggest-banner" class="d-flex align-items-center gap-2 rounded px-3 py-2 mb-2"
+       style="display:none!important; font-size:.82rem; border:1px solid transparent;">
+    <i id="fir-suggest-icon" class="fa-solid fa-robot"></i>
+    <div>
+      <span class="fw-semibold">Machine suggestion:</span>
+      <span id="fir-suggest-label"></span>
+      <span class="text-muted ms-2" id="fir-suggest-score" style="font-size:.75rem;"></span>
+    </div>
+    <span class="ms-auto text-muted" id="fir-suggest-ts" style="font-size:.72rem; white-space:nowrap;"></span>
   </div>
 
   <div id="fir-panel-body" style="display:none;">
@@ -283,5 +300,39 @@
       if(btn){ btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Running…'; }
     });
   });
+
+  // ── Suggestion marker ──────────────────────────────────────────────────────
+  (function renderSuggestion(){
+    const notes = window._firNotes || "";
+    const m = notes.match(/<!-- FIR_SUGGESTION:([^:]+):(\d+):([^ ]+) -->/);
+    if (!m) return;
+    const [, decision, score, ts] = m;
+
+    const META = {
+      "needs-ghidra": { label:"Needs Ghidra",  icon:"fa-magnifying-glass", bg:"#fff3cd", border:"#ffc107", text:"#856404" },
+      "needs-angr"  : { label:"Needs angr",    icon:"fa-bug",              bg:"#f8d7da", border:"#dc3545", text:"#842029" },
+      "confirmed"   : { label:"Confirmed",      icon:"fa-circle-check",     bg:"#d1e7dd", border:"#198754", text:"#0a3622" },
+      "uncertain"   : { label:"Uncertain",      icon:"fa-circle-question",  bg:"#e2e3e5", border:"#6c757d", text:"#41464b" },
+    };
+    const meta = META[decision] || META["uncertain"];
+
+    // Header badge (visible even when panel is collapsed)
+    const badge = document.getElementById('fir-suggest-badge');
+    if (badge) {
+      badge.style.display = '';
+      badge.innerHTML = `<span class="badge ms-1" style="background:${meta.border};font-size:.6rem;">
+        <i class="fa-solid ${meta.icon} me-1"></i>${meta.label}</span>`;
+    }
+
+    // Full banner inside panel
+    const banner = document.getElementById('fir-suggest-banner');
+    if (banner) {
+      banner.style.cssText = `background:${meta.bg};border-color:${meta.border}!important;color:${meta.text};font-size:.82rem;`;
+      document.getElementById('fir-suggest-icon').className = `fa-solid ${meta.icon}`;
+      document.getElementById('fir-suggest-label').textContent = meta.label;
+      document.getElementById('fir-suggest-score').textContent = `score: ${score}`;
+      document.getElementById('fir-suggest-ts').textContent   = ts.replace('T',' ');
+    }
+  })();
 })();
 </script>
