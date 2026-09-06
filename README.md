@@ -328,13 +328,21 @@ MISP credentials are read from the Flowintel database — no separate configurat
 ## Requirements
 
 - [Flowintel](https://github.com/flowintel/flowintel)
-- [Reverify](https://github.com/2akouwu/reverify) installed in the Flowintel venv
-- [yara-python](https://github.com/VirusTotal/yara-python) installed in the Flowintel venv
-- [python-tlsh](https://pypi.org/project/python-tlsh/) installed in the Flowintel venv
-- [ssdeep](https://packages.debian.org/python3-ssdeep) — `apt install python3-ssdeep`
-- [requests](https://pypi.org/project/requests/) installed in the Flowintel venv
 - [MISP](https://github.com/MISP/MISP) instance connected to Flowintel *(for MISP push)*
 - Python 3.10+
+- System library: `libfuzzy-dev` (for ssdeep — installed automatically by `install.sh`)
+
+Python dependencies are listed in [`requirements.txt`](requirements.txt) and installed
+automatically by `install.sh`:
+
+| Package | Purpose |
+|---------|---------|
+| `reverify` | Static analysis core |
+| `yara-python` | YARA rule validation |
+| `python-tlsh` | TLSH fuzzy hashing |
+| `ssdeep` | ssdeep fuzzy hashing |
+| `pymisp` | MISP event creation and publishing |
+| `requests` | HTTP calls to RDAP, RIPE Stat, Lookyloo |
 
 ---
 
@@ -349,11 +357,20 @@ FLOWINTEL_DIR=/opt/flowintel bash install.sh
 systemctl restart flowintel
 ```
 
-Install dependencies in the Flowintel venv:
+`install.sh` handles everything: installs `libfuzzy-dev` via apt, installs all Python
+dependencies from `requirements.txt` into the Flowintel venv, copies all modules, patches
+the sidebar and API, and adds Mattermost config stubs.
+
+To install dependencies only (skip module deployment):
 
 ```bash
-/opt/flowintel/env/bin/pip install reverify yara-python python-tlsh
-sudo apt install python3-ssdeep
+SKIP_PATCH=1 FLOWINTEL_DIR=/opt/flowintel bash install.sh
+```
+
+To skip dependency installation (modules only):
+
+```bash
+SKIP_DEPS=1 FLOWINTEL_DIR=/opt/flowintel bash install.sh
 ```
 
 If Reverify is installed outside the default path:
